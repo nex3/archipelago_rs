@@ -10,7 +10,6 @@ pub struct DeathLinkOptions {
     pub(crate) slots: Option<Vec<String>>,
     pub(crate) time: Option<SystemTime>,
     pub(crate) cause: Option<String>,
-    pub(crate) source: Option<String>,
 }
 
 impl DeathLinkOptions {
@@ -21,7 +20,6 @@ impl DeathLinkOptions {
             slots: None,
             time: None,
             cause: None,
-            source: None,
         }
     }
 
@@ -56,15 +54,6 @@ impl DeathLinkOptions {
     /// By default, no cause is provided.
     pub fn cause(mut self, cause: String) -> Self {
         self.cause = Some(cause);
-        self
-    }
-
-    /// Sets the name of the player who first died. This can be a slot name, but
-    /// can also be a name from within a multiplayer game.
-    ///
-    /// By default, this is the current slot name.
-    pub fn source(mut self, source: String) -> Self {
-        self.source = Some(source);
         self
     }
 }

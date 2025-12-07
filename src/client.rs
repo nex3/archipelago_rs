@@ -285,7 +285,11 @@ where
     }
 
     /// Sends a death link notification to the server.
-    pub async fn death_link(&mut self, options: DeathLinkOptions) -> Result<(), ArchipelagoError> {
+    pub async fn death_link(
+        &mut self,
+        source: String,
+        options: DeathLinkOptions,
+    ) -> Result<(), ArchipelagoError> {
         self.send(ClientMessage::Bounce(Bounce {
             games: options.games,
             slots: options.slots,
@@ -293,9 +297,7 @@ where
             data: BounceData::DeathLink(DeathLink {
                 time: options.time.unwrap_or_else(SystemTime::now),
                 cause: options.cause,
-                source: options
-                    .source
-                    .unwrap_or_else(|| self.room_info.seed_name.clone()),
+                source,
             }),
         }))
         .await
