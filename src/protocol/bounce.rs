@@ -61,7 +61,7 @@ pub enum BounceData {
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeathLink {
-    #[serde_as(as = "TimestampSeconds<i64>")]
+    #[serde_as(as = "TimestampSeconds<f64>")]
     pub time: SystemTime,
     pub cause: Option<String>,
     pub source: String,
