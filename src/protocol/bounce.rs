@@ -104,7 +104,7 @@ impl Serialize for Bounce {
                 state.serialize_field("data", &death_link)?;
             }
             BounceData::Generic(value) => {
-                if self.tags.len() > 0 {
+                if !self.tags.is_empty() {
                     state.serialize_field("tags", &self.tags)?;
                 }
                 state.serialize_field("data", &value)?;
