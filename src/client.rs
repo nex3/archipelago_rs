@@ -193,11 +193,10 @@ where
      * Basic chat command which sends text to the server to be distributed to other clients.
      */
     pub async fn say(&mut self, message: &str) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::Say(Say {
-                text: message.to_string(),
-            }))
-            .await?)
+        self.send(ClientMessage::Say(Say {
+            text: message.to_string(),
+        }))
+        .await
     }
 
     /**
@@ -223,9 +222,8 @@ where
      * Used to inform the server of new checks that are made, as well as to sync state.
      */
     pub async fn location_checks(&mut self, locations: Vec<i64>) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::LocationChecks(LocationChecks { locations }))
-            .await?)
+        self.send(ClientMessage::LocationChecks(LocationChecks { locations }))
+            .await
     }
 
     /**
@@ -259,9 +257,8 @@ where
      * Examples include readiness or goal completion. (Example: defeated Ganon in A Link to the Past)
      */
     pub async fn status_update(&mut self, status: ClientStatus) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
-            .await?)
+        self.send(ClientMessage::StatusUpdate(StatusUpdate { status }))
+            .await
     }
 
     /**
@@ -274,14 +271,13 @@ where
         tags: Vec<String>,
         data: serde_json::Value,
     ) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::Bounce(Bounce {
-                games,
-                slots,
-                tags,
-                data: BounceData::Generic(data),
-            }))
-            .await?)
+        self.send(ClientMessage::Bounce(Bounce {
+            games,
+            slots,
+            tags,
+            data: BounceData::Generic(data),
+        }))
+        .await
     }
 
     /// Sends a death link notification to the server.
@@ -406,23 +402,20 @@ impl ArchipelagoClientSender {
     }
 
     pub async fn say(&mut self, message: &str) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::Say(Say {
-                text: message.to_string(),
-            }))
-            .await?)
+        self.send(ClientMessage::Say(Say {
+            text: message.to_string(),
+        }))
+        .await
     }
 
     pub async fn location_checks(&mut self, locations: Vec<i64>) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::LocationChecks(LocationChecks { locations }))
-            .await?)
+        self.send(ClientMessage::LocationChecks(LocationChecks { locations }))
+            .await
     }
 
     pub async fn status_update(&mut self, status: ClientStatus) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
-            .await?)
+        self.send(ClientMessage::StatusUpdate(StatusUpdate { status }))
+            .await
     }
 
     pub async fn bounce(
@@ -432,14 +425,13 @@ impl ArchipelagoClientSender {
         tags: Vec<String>,
         data: serde_json::Value,
     ) -> Result<(), ArchipelagoError> {
-        Ok(self
-            .send(ClientMessage::Bounce(Bounce {
-                games,
-                slots,
-                tags,
-                data: BounceData::Generic(data),
-            }))
-            .await?)
+        self.send(ClientMessage::Bounce(Bounce {
+            games,
+            slots,
+            tags,
+            data: BounceData::Generic(data),
+        }))
+        .await
     }
 }
 

@@ -91,11 +91,7 @@ pub struct NetworkVersion {
 
 impl Display for NetworkVersion {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{}",
-            format!("{}.{}.{}", self.major, self.minor, self.build)
-        )
+        write!(f, "{}.{}.{}", self.major, self.minor, self.build)
     }
 }
 
@@ -138,9 +134,9 @@ impl From<u8> for NetworkItemFlags {
     }
 }
 
-impl Into<u8> for NetworkItemFlags {
-    fn into(self) -> u8 {
-        self.bits()
+impl From<NetworkItemFlags> for u8 {
+    fn from(value: NetworkItemFlags) -> Self {
+        value.bits()
     }
 }
 
@@ -500,7 +496,7 @@ impl PrintJSON {
 impl fmt::Display for PrintJSON {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         for part in self.data() {
-            f.write_str(&part.text().as_str())?;
+            f.write_str(part.text().as_str())?;
         }
         Ok(())
     }
@@ -567,7 +563,7 @@ impl JSONMessagePart {
 
 impl fmt::Display for JSONMessagePart {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(&self.text().as_str())?;
+        f.write_str(self.text().as_str())?;
         Ok(())
     }
 }
