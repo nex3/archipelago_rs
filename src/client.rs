@@ -1,3 +1,5 @@
+use std::time::SystemTime;
+
 use futures_util::{
     stream::{SplitSink, SplitStream},
     SinkExt, Stream, StreamExt,
@@ -8,6 +10,10 @@ use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
 use tungstenite::protocol::Message;
 
 use crate::protocol::*;
+
+mod death_link_options;
+
+pub use death_link_options::*;
 
 #[derive(Error, Debug)]
 pub enum ArchipelagoError {
@@ -265,7 +271,7 @@ where
         &mut self,
         games: Option<Vec<String>>,
         slots: Option<Vec<String>>,
-        tags: Option<Vec<String>>,
+        tags: Vec<String>,
         data: serde_json::Value,
     ) -> Result<(), ArchipelagoError> {
         Ok(self
@@ -273,9 +279,28 @@ where
                 games,
                 slots,
                 tags,
-                data,
+                data: BounceData::Generic(data),
             }))
             .await?)
+    }
+
+    /// Sends a death link notification to the server.
+    pub async fn death_link(
+        &mut self,
+        source: String,
+        options: DeathLinkOptions,
+    ) -> Result<(), ArchipelagoError> {
+        self.send(ClientMessage::Bounce(Bounce {
+            games: options.games,
+            slots: options.slots,
+            tags: vec![],
+            data: BounceData::DeathLink(DeathLink {
+                time: options.time.unwrap_or_else(SystemTime::now),
+                cause: options.cause,
+                source,
+            }),
+        }))
+        .await
     }
 
     /**
@@ -404,7 +429,7 @@ impl ArchipelagoClientSender {
         &mut self,
         games: Option<Vec<String>>,
         slots: Option<Vec<String>>,
-        tags: Option<Vec<String>>,
+        tags: Vec<String>,
         data: serde_json::Value,
     ) -> Result<(), ArchipelagoError> {
         Ok(self
@@ -412,7 +437,7 @@ impl ArchipelagoClientSender {
                 games,
                 slots,
                 tags,
-                data,
+                data: BounceData::Generic(data),
             }))
             .await?)
     }
