@@ -391,10 +391,8 @@ pub struct DataPackageObject {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameData {
-    #[serde(rename = "item_name_to_id")]
-    pub item_name_id_map: BiHashMap<Arc<String>, i64>,
-    #[serde(rename = "location_name_to_id")]
-    pub location_name_id_map: BiHashMap<Arc<String>, i64>,
+    pub item_name_to_id: BiHashMap<Arc<String>, i64>,
+    pub location_name_to_id: BiHashMap<Arc<String>, i64>,
     pub checksum: String,
 }
 
