@@ -1,13 +1,13 @@
-use serde_with::DisplayFromStr;
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::sync::{Arc, OnceLock};
-
+use bimap::BiHashMap;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::serde_as;
+use serde_with::DisplayFromStr;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::sync::Arc;
 
 mod bounce;
 mod rich_message;
@@ -391,40 +391,11 @@ pub struct DataPackageObject {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameData {
-    pub item_name_to_id: HashMap<Arc<String>, i64>,
-    pub location_name_to_id: HashMap<Arc<String>, i64>,
+    #[serde(rename = "item_name_to_id")]
+    pub item_name_id_map: BiHashMap<Arc<String>, i64>,
+    #[serde(rename = "location_name_to_id")]
+    pub location_name_id_map: BiHashMap<Arc<String>, i64>,
     pub checksum: String,
-
-    #[serde(skip)]
-    item_id_to_name: OnceLock<HashMap<i64, Arc<String>>>,
-    #[serde(skip)]
-    location_id_to_name: OnceLock<HashMap<i64, Arc<String>>>,
-}
-
-impl GameData {
-    /// A map from item IDs to names, the inverse of [item_name_to_id]. This is
-    /// lazily computed the first time it's accessed, but will be free to access
-    /// thereafter.
-    pub fn item_id_to_name(&self) -> &HashMap<i64, Arc<String>> {
-        self.item_id_to_name.get_or_init(|| {
-            self.item_name_to_id
-                .iter()
-                .map(|(name, id)| (*id, name.clone()))
-                .collect()
-        })
-    }
-
-    /// A map from location IDs to names, the inverse of [location_name_to_id].
-    /// This is lazily computed the first time it's accessed, but will be free
-    /// to access thereafter.
-    pub fn location_id_to_name(&self) -> &HashMap<i64, Arc<String>> {
-        self.location_id_to_name.get_or_init(|| {
-            self.location_name_to_id
-                .iter()
-                .map(|(name, id)| (*id, name.clone()))
-                .collect()
-        })
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -16,6 +16,7 @@ tokio-tungstenite = { version = "0.28", features = ["native-tls"] }
 tungstenite = "0.28"
 bitflags = { version = "2.10.0" }
 serde_with = "3.16.1"
+bimap = { version = "0.6.3", features = ["serde"] }
 
 [dev-dependencies]
 anyhow = "1.0"

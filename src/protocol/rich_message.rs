@@ -261,7 +261,7 @@ impl RichMessagePart {
                     .slot_info
                     .get(player)
                     .and_then(|s| data_package.games.get(&s.game))
-                    .and_then(|g| g.item_id_to_name().get(id))
+                    .and_then(|g| g.item_name_id_map.get_by_right(id))
                 {
                     name.replace(item.clone());
                 }
@@ -273,7 +273,7 @@ impl RichMessagePart {
                     .slot_info
                     .get(player)
                     .and_then(|s| data_package.games.get(&s.game))
-                    .and_then(|g| g.location_id_to_name().get(id))
+                    .and_then(|g| g.location_name_id_map.get_by_right(id))
                 {
                     name.replace(item.clone());
                 }
