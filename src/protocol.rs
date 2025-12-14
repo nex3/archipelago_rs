@@ -1,17 +1,19 @@
-use serde_with::DisplayFromStr;
-use std::collections::HashMap;
-use std::fmt::Display;
-
+use bimap::BiHashMap;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::serde_as;
-use std::fmt;
+use serde_with::DisplayFromStr;
+use std::collections::HashMap;
+use std::fmt::Display;
+use std::sync::Arc;
 
 mod bounce;
+mod rich_message;
 
 pub use bounce::*;
+pub use rich_message::*;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "cmd")]
@@ -41,7 +43,8 @@ pub enum ServerMessage<S> {
     LocationInfo(LocationInfo),
     RoomUpdate(RoomUpdate),
     Print(Print),
-    PrintJSON(PrintJSON),
+    #[serde(rename = "PrintJSON")]
+    RichPrint(RichPrint),
     DataPackage(DataPackage),
     Bounced(Bounced),
     InvalidPacket(InvalidPacket),
@@ -61,7 +64,7 @@ impl<S> ServerMessage<S> {
             LocationInfo(_) => "LocationInfo",
             RoomUpdate(_) => "RoomUpdate",
             Print(_) => "Print",
-            PrintJSON(_) => "PrintJSON",
+            RichPrint(_) => "PrintJSON",
             DataPackage(_) => "DataPackage",
             Bounced(_) => "Bounced",
             InvalidPacket(_) => "InvalidPacket",
@@ -376,221 +379,6 @@ pub struct Print {
     pub text: String,
 }
 
-// Not a very elegant way to handle this. See
-// https://github.com/serde-rs/serde/issues/1799.
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type")]
-pub enum PrintJSON {
-    ItemSend {
-        data: Vec<JSONMessagePart>,
-        receiving: i64,
-        item: NetworkItem,
-    },
-    ItemCheat {
-        data: Vec<JSONMessagePart>,
-        receiving: i64,
-        item: NetworkItem,
-        team: i64,
-    },
-    Hint {
-        data: Vec<JSONMessagePart>,
-        receiving: i64,
-        item: NetworkItem,
-        found: bool,
-    },
-    Join {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-        tags: Vec<String>,
-    },
-    Part {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-    },
-    Chat {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-        message: String,
-    },
-    ServerChat {
-        data: Vec<JSONMessagePart>,
-        message: String,
-    },
-    Tutorial {
-        data: Vec<JSONMessagePart>,
-    },
-    TagsChanged {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-        tags: Vec<String>,
-    },
-    CommandResult {
-        data: Vec<JSONMessagePart>,
-    },
-    AdminCommandResult {
-        data: Vec<JSONMessagePart>,
-    },
-    Goal {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-    },
-    Release {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-    },
-    Collect {
-        data: Vec<JSONMessagePart>,
-        team: i64,
-        slot: i64,
-    },
-    Countdown {
-        data: Vec<JSONMessagePart>,
-        countdown: i64,
-    },
-    #[serde(untagged)]
-    Unknown {
-        data: Vec<JSONMessagePart>,
-    },
-}
-
-impl PrintJSON {
-    /// A utility method that returns a message of an unknown type that just
-    /// contains the given unformatted [text].
-    pub fn message(text: String) -> PrintJSON {
-        PrintJSON::Unknown {
-            data: vec![JSONMessagePart::Text { text }],
-        }
-    }
-
-    /// Returns the data field for any JSONMessagePart.
-    pub fn data(&self) -> &Vec<JSONMessagePart> {
-        use PrintJSON::*;
-        match self {
-            ItemSend { data, .. } => data,
-            ItemCheat { data, .. } => data,
-            Hint { data, .. } => data,
-            Join { data, .. } => data,
-            Part { data, .. } => data,
-            Chat { data, .. } => data,
-            ServerChat { data, .. } => data,
-            Tutorial { data, .. } => data,
-            TagsChanged { data, .. } => data,
-            CommandResult { data, .. } => data,
-            AdminCommandResult { data, .. } => data,
-            Goal { data, .. } => data,
-            Release { data, .. } => data,
-            Collect { data, .. } => data,
-            Countdown { data, .. } => data,
-            Unknown { data, .. } => data,
-        }
-    }
-}
-
-impl fmt::Display for PrintJSON {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        for part in self.data() {
-            f.write_str(part.text().as_str())?;
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum JSONMessagePart {
-    PlayerId {
-        text: String,
-        player: i64,
-    },
-    PlayerName {
-        text: String,
-    },
-    ItemId {
-        text: String,
-        flags: NetworkItemFlags,
-        player: i64,
-    },
-    ItemName {
-        text: String,
-        flags: NetworkItemFlags,
-        player: i64,
-    },
-    LocationId {
-        text: String,
-        player: i64,
-    },
-    LocationName {
-        text: String,
-        player: i64,
-    },
-    EntranceName {
-        text: String,
-    },
-    Color {
-        text: String,
-        color: JSONColor,
-    },
-    #[serde(untagged)]
-    Text {
-        text: String,
-    },
-}
-
-impl JSONMessagePart {
-    /// Returns the text field for any JSONMessagePart.
-    pub fn text(&self) -> &String {
-        use JSONMessagePart::*;
-        match self {
-            PlayerId { text, .. } => text,
-            PlayerName { text, .. } => text,
-            ItemId { text, .. } => text,
-            ItemName { text, .. } => text,
-            LocationId { text, .. } => text,
-            LocationName { text, .. } => text,
-            EntranceName { text, .. } => text,
-            Color { text, .. } => text,
-            Text { text, .. } => text,
-        }
-    }
-}
-
-impl fmt::Display for JSONMessagePart {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.write_str(self.text().as_str())?;
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum JSONColor {
-    Bold,
-    Underline,
-    Black,
-    Red,
-    Green,
-    Yellow,
-    Blue,
-    Magenta,
-    Cyan,
-    White,
-    BlackBg,
-    RedBg,
-    GreenBg,
-    YellowBg,
-    BlueBg,
-    MagentaBg,
-    CyanBg,
-    WhiteBg,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataPackage {
     pub data: DataPackageObject,
@@ -603,8 +391,8 @@ pub struct DataPackageObject {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameData {
-    pub item_name_to_id: HashMap<String, i64>,
-    pub location_name_to_id: HashMap<String, i64>,
+    pub item_name_to_id: BiHashMap<Arc<String>, i64>,
+    pub location_name_to_id: BiHashMap<Arc<String>, i64>,
     pub checksum: String,
 }
 
