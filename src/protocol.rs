@@ -1,3 +1,6 @@
+use std::collections::{HashMap, HashSet};
+use std::{fmt::Display, sync::Arc};
+
 use bimap::BiHashMap;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -5,9 +8,6 @@ use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::serde_as;
 use serde_with::DisplayFromStr;
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::sync::Arc;
 
 mod bounce;
 mod rich_message;
@@ -74,22 +74,36 @@ impl<S> ServerMessage<S> {
     }
 }
 
-#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
+#[derive(Debug, Clone, Copy, Deserialize_repr)]
+#[repr(u8)]
+/// Permissions for when certain actions (such as releasing all checks) may be
+/// performed.
 pub enum Permission {
+    /// This action may never be performed.
     Disabled = 0,
+
+    /// This action may be manually performed at any time.
     Enabled = 1,
+
+    /// This action may be manually performed by a player after they have
+    /// reached their goal.
     Goal = 2,
+
+    /// This action is automatically performed after the player has reached
+    /// their goal. This is only possible for release and collect.
     Auto = 6,
+
+    /// This action is automatically performed after the player has reached
+    /// their goal *and* may be manually performed at any time.
     AutoEnabled = 7,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkVersion {
-    pub major: i64,
-    pub minor: i64,
-    pub build: i64,
-    pub class: String,
+    pub major: u64,
+    pub minor: u64,
+    pub build: u64,
+    pub(crate) class: String,
 }
 
 impl Display for NetworkVersion {
@@ -98,10 +112,10 @@ impl Display for NetworkVersion {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct NetworkPlayer {
-    pub team: i64,
-    pub slot: i64,
+    pub team: u64,
+    pub slot: u64,
     pub alias: String,
     pub name: String,
 }
@@ -110,7 +124,7 @@ pub struct NetworkPlayer {
 pub struct NetworkItem {
     pub item: i64,
     pub location: i64,
-    pub player: i64,
+    pub player: u64,
     pub flags: NetworkItemFlags,
 }
 
@@ -143,8 +157,8 @@ impl From<NetworkItemFlags> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
 pub enum SlotType {
     Spectator = 0,
     Player = 1,
@@ -218,7 +232,7 @@ pub struct LocationScouts {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpdateHint {
-    pub player: i64,
+    pub player: u64,
     pub location: i64,
     pub status: HintStatus,
 }
@@ -302,23 +316,28 @@ pub struct SetNotify {
 
 // RESPONSES
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoomInfo {
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RoomInfo {
     pub version: NetworkVersion,
     pub generator_version: NetworkVersion,
-    pub tags: Vec<String>,
+    pub tags: HashSet<String>,
     #[serde(rename = "password")]
     pub password_required: bool,
-    pub permissions: HashMap<String, Permission>,
-    pub hint_cost: i64,
-    pub location_check_points: i64,
-    pub games: Vec<String>,
-    #[serde(default)]
-    pub datapackage_versions: HashMap<String, i64>,
+    pub permissions: PermissionMap,
+    pub hint_cost: u8,
+    pub location_check_points: u64,
+    pub games: HashSet<String>,
     #[serde(default)]
     pub datapackage_checksums: HashMap<String, String>,
     pub seed_name: String,
     pub time: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct PermissionMap {
+    pub release: Permission,
+    pub collect: Permission,
+    pub remaining: Permission,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -330,15 +349,15 @@ pub struct ConnectionRefused {
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 pub struct Connected<S> {
-    pub team: i64,
-    pub slot: i64,
+    pub team: u64,
+    pub slot: u64,
     pub players: Vec<NetworkPlayer>,
     pub missing_locations: Vec<i64>,
     pub checked_locations: Vec<i64>,
     pub slot_data: S,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
-    pub slot_info: HashMap<i64, NetworkSlot>,
-    pub hint_points: i64,
+    pub slot_info: HashMap<u64, NetworkSlot>,
+    pub hint_points: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -352,14 +371,14 @@ pub struct LocationInfo {
     pub locations: Vec<NetworkItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct RoomUpdate {
     // Copied from RoomInfo
     pub version: Option<NetworkVersion>,
     pub tags: Option<Vec<String>>,
     #[serde(rename = "password")]
     pub password_required: Option<bool>,
-    pub permissions: Option<HashMap<String, Permission>>,
+    pub permissions: Option<PermissionMap>,
     pub hint_cost: Option<i64>,
     pub location_check_points: Option<i64>,
     pub games: Option<Vec<String>>,

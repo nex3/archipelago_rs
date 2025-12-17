@@ -1,35 +1,32 @@
-use archipelago_rs::client::ArchipelagoClient;
-use archipelago_rs::protocol::ItemsHandlingFlags;
-use serde_json::Value;
 use std::io::{self, BufRead};
+use std::time::Duration;
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> anyhow::Result<()> {
+use archipelago_rs::{Connection, ConnectionStateType};
+use simplelog::{ColorChoice, LevelFilter, TermLogger, TerminalMode};
+
+fn main() -> anyhow::Result<()> {
+    TermLogger::init(
+        LevelFilter::Debug,
+        Default::default(),
+        TerminalMode::Stderr,
+        ColorChoice::Auto,
+    )?;
+
     // Connect to AP server
     let server = prompt("Connect to what AP server?")?;
-
-    let mut client: ArchipelagoClient<Value> = ArchipelagoClient::new(&server).await?;
-    println!("Connected!");
-
-    // Connect to a given slot on the server
-
     let game = prompt("What game?")?;
     let slot = prompt("What slot?")?;
-    client
-        .connect(
-            &game,
-            &slot,
-            None,
-            ItemsHandlingFlags::all(),
-            vec!["AP".to_string()],
-        )
-        .await?;
-    println!("Connected to slot!");
 
-    client.say("Hello, world!").await?;
-    println!("Sent Hello, world!");
-
-    Ok(())
+    let mut connection: Connection = Connection::new(server, game, slot, Default::default());
+    loop {
+        if let Some(transition) = connection.update() {
+            println!("{:?}", transition);
+        }
+        if connection.state_type() == ConnectionStateType::Disconnected {
+            return Err(connection.into_err().into());
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn prompt(text: &str) -> Result<String, anyhow::Error> {

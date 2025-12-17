@@ -181,7 +181,7 @@ pub enum RichMessagePart {
         /// The slot ID of the player this part refers to.
         #[serde(rename = "text")]
         #[serde_as(as = "DisplayFromStr")]
-        id: i64,
+        id: u64,
 
         /// This field is neither set nor read by the server. It's filled in
         /// based on [id] when [add_name] is called.
@@ -196,7 +196,7 @@ pub enum RichMessagePart {
         #[serde_as(as = "DisplayFromStr")]
         id: i64,
         flags: NetworkItemFlags,
-        player: i64,
+        player: u64,
 
         /// This field is neither set nor read by the server. It's filled in
         /// based on [id] and [player] when [add_name] is called.
@@ -206,13 +206,13 @@ pub enum RichMessagePart {
     ItemName {
         text: String,
         flags: NetworkItemFlags,
-        player: i64,
+        player: u64,
     },
     LocationId {
         #[serde(rename = "text")]
         #[serde_as(as = "DisplayFromStr")]
         id: i64,
-        player: i64,
+        player: u64,
 
         /// This field is neither set nor read by the server. It's filled in
         /// based on [id] and [player] when [add_name] is called.
@@ -221,7 +221,7 @@ pub enum RichMessagePart {
     },
     LocationName {
         text: String,
-        player: i64,
+        player: u64,
     },
     EntranceName {
         text: String,
