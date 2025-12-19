@@ -151,4 +151,8 @@ pub enum ProtocolError {
         /// The current player's slot number.
         slot: u64,
     },
+
+    /// A player has a slot number that doesn't appear in `Connected.slot_info`.
+    #[error("slot {0} is missing from Connected.slot_info")]
+    MissingSlotInfo(u64),
 }

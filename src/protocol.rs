@@ -113,11 +113,11 @@ impl Display for NetworkVersion {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct NetworkPlayer {
+pub(crate) struct NetworkPlayer {
     pub team: u64,
     pub slot: u64,
-    pub alias: String,
-    pub name: String,
+    pub alias: Arc<String>,
+    pub name: Arc<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,10 +167,10 @@ pub enum SlotType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkSlot {
-    pub name: String,
-    pub game: String,
+    pub name: Arc<String>,
+    pub game: Arc<String>,
     pub r#type: SlotType,
-    pub group_members: Vec<i64>,
+    pub group_members: Vec<u64>,
 }
 
 pub fn network_version() -> NetworkVersion {

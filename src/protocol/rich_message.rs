@@ -251,7 +251,7 @@ impl RichMessagePart {
         match self {
             PlayerId { id, name } => {
                 if let Some(player) = connected.players.iter().find(|p| p.slot == *id) {
-                    name.replace(Arc::new(player.alias.clone()));
+                    name.replace(player.alias.clone());
                 }
             }
             ItemId {
@@ -260,7 +260,7 @@ impl RichMessagePart {
                 if let Some(item) = connected
                     .slot_info
                     .get(player)
-                    .and_then(|s| data_package.games.get(&s.game))
+                    .and_then(|s| data_package.games.get(s.game.as_ref()))
                     .and_then(|g| g.item_name_to_id.get_by_right(id))
                 {
                     name.replace(item.clone());
@@ -272,7 +272,7 @@ impl RichMessagePart {
                 if let Some(item) = connected
                     .slot_info
                     .get(player)
-                    .and_then(|s| data_package.games.get(&s.game))
+                    .and_then(|s| data_package.games.get(s.game.as_ref()))
                     .and_then(|g| g.location_name_to_id.get_by_right(id))
                 {
                     name.replace(item.clone());

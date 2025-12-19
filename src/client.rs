@@ -1,8 +1,10 @@
 use std::collections::{HashMap, HashSet};
+use std::iter::{FusedIterator, Iterator};
+use std::{slice, sync::Arc};
 
 use serde::de::DeserializeOwned;
 
-use crate::{ConnectionOptions, Error, ProtocolError, Socket, protocol::*};
+use crate::{ConnectionOptions, Error, Player, ProtocolError, Socket, protocol::*};
 
 mod death_link_options;
 
@@ -41,7 +43,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     seed_name: String,
     data_package: DataPackageObject,
     player_index: usize,
-    players: Vec<NetworkPlayer>,
+    players: Vec<Arc<Player>>,
     slot_data: S,
     spectators: Vec<NetworkSlot>,
     groups: Vec<NetworkSlot>,
@@ -137,17 +139,7 @@ impl<S: DeserializeOwned> Client<S> {
     ) -> Result<Self, Error> {
         let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
         let points_per_hint = (total_locations as u64) * u64::from(room_info.hint_cost) / 100;
-        let Some(player_index) = connected
-            .players
-            .iter()
-            .position(|p| p.team == connected.team && p.slot == connected.slot)
-        else {
-            return Err(ProtocolError::MissingNetworkPlayer {
-                team: connected.team,
-                slot: connected.slot,
-            }
-            .into());
-        };
+
         let spectators = connected
             .slot_info
             .extract_if(|_, slot| slot.r#type == SlotType::Spectator)
@@ -157,7 +149,28 @@ impl<S: DeserializeOwned> Client<S> {
             .slot_info
             .extract_if(|_, slot| slot.r#type == SlotType::Group)
             .map(|(_, slot)| slot)
-            .collect();
+            .collect::<Vec<_>>();
+        let players = connected
+            .players
+            .into_iter()
+            .map(|p| {
+                let game = connected
+                    .slot_info
+                    .get(&p.slot)
+                    .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
+                    .ok_or_else(|| ProtocolError::MissingSlotInfo(p.slot))?
+                    .game
+                    .clone();
+                Ok(Player::hydrate(p, game).into())
+            })
+            .collect::<Result<Vec<Arc<Player>>, Error>>()?;
+        let player_index = players
+            .iter()
+            .position(|p| p.team() == connected.team && p.slot() == connected.slot)
+            .ok_or_else(|| ProtocolError::MissingNetworkPlayer {
+                team: connected.team,
+                slot: connected.slot,
+            })?;
 
         let mut local_locations_checked = HashMap::with_capacity(total_locations);
         for id in connected.missing_locations {
@@ -181,7 +194,7 @@ impl<S: DeserializeOwned> Client<S> {
             seed_name: room_info.seed_name,
             data_package: data_package,
             player_index,
-            players: connected.players,
+            players,
             slot_data: connected.slot_data,
             spectators,
             groups,
@@ -266,14 +279,51 @@ impl<S: DeserializeOwned> Client<S> {
     }
 
     /// The player that's currently connected to the multiworld.
-    pub fn connected_player(&self) -> &NetworkPlayer {
-        &self.players[self.player_index]
+    pub fn this_player(&self) -> &Player {
+        self.players[self.player_index].as_ref()
     }
 
-    // TODO: Give these players game names from slot_info
     /// All players in the multiworld.
-    pub fn players(&self) -> &[NetworkPlayer] {
-        self.players.as_slice()
+    pub fn players(&self) -> Players<'_> {
+        Players(self.players.as_slice().into_iter())
+    }
+
+    /// The player on the given [team] playing the given [slot], if one exists.
+    ///
+    /// See also [teammate] to only check the current player's team.
+    pub fn player(&self, team: u64, slot: u64) -> Option<&Player> {
+        self.players
+            .iter()
+            .find(|p| p.team() == team && p.slot() == slot)
+            .map(|p| p.as_ref())
+    }
+
+    /// The player on the given [team] playing the given [slot]. Panics if this
+    /// player doesn't exist.
+    ///
+    /// See also [assert_teammate] to only check the current player's team.
+    pub fn assert_player(&self, team: u64, slot: u64) -> &Player {
+        self.player(team, slot).unwrap_or_else(|| {
+            if self.players.iter().any(|p| p.team() == team) {
+                panic!("no player with slot {}", slot);
+            } else {
+                panic!("no team with ID {}", team);
+            }
+        })
+    }
+
+    /// The player playing the given [slot] on the current player's team, if one
+    /// exists.
+    pub fn teammate(&self, slot: u64) -> Option<&Player> {
+        self.player(self.this_player().team(), slot)
+    }
+
+    /// The player playing the given [slot] on the current player's team. Panics
+    /// if this player doesn't exist.
+    ///
+    /// See also [assert_teammate] to only check the current player's team.
+    pub fn assert_teammate(&self, team: u64, slot: u64) -> &Player {
+        self.assert_player(self.this_player().team(), slot)
     }
 
     // TODO: Take a Location object?
@@ -347,6 +397,31 @@ impl<S: DeserializeOwned> Client<S> {
 // Since we treat slot data as immutable anyway, we can guarantee that nothing
 // will change and so it's safe to declare the entire Client as Unpin.
 impl<S> Unpin for Client<S> where S: DeserializeOwned {}
+
+/// The iterator for [Client.players].
+#[derive(Clone, Debug, Default)]
+pub struct Players<'a>(slice::Iter<'a, Arc<Player>>);
+
+impl<'a> Iterator for Players<'a> {
+    type Item = &'a Player;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.0.next().map(|a| a.as_ref())
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+
+impl DoubleEndedIterator for Players<'_> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        self.0.next_back().map(|a| a.as_ref())
+    }
+}
+
+impl ExactSizeIterator for Players<'_> {}
+impl FusedIterator for Players<'_> {}
 
 /// Events from the Archipelago server that clients may want to handle.
 ///
