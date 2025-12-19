@@ -1,44 +1,39 @@
-use std::{collections::VecDeque, fmt, io, net::ToSocketAddrs, time::Duration};
+#[cfg(unix)]
+use std::os::unix::io::AsFd;
+#[cfg(windows)]
+use std::os::windows::io::AsSocket;
+use std::{collections::VecDeque, io, net::TcpStream as SyncTcpStream, sync::Arc};
 
 use log::*;
-use mio::{net::TcpStream, Events, Interest, Poll, Token};
-use native_tls::{
-    HandshakeError as TlsHandshakeError, MidHandshakeTlsStream, TlsConnector, TlsStream,
-};
-use thiserror::Error as ThisError;
+use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector};
+use serde::de::DeserializeOwned;
+use smol::{Async, net::TcpStream as AsyncTcpStream};
+use tungstenite::HandshakeError as WsHandshakeError;
 use tungstenite::client::IntoClientRequest;
 use tungstenite::error::{TlsError, UrlError};
-use tungstenite::handshake::client::{ClientHandshake, Request};
-use tungstenite::handshake::MidHandshake as MidHandshakeWebSocket;
+use tungstenite::handshake::client::ClientHandshake;
 use tungstenite::stream::{MaybeTlsStream, Mode};
-use tungstenite::HandshakeError as WsHandshakeError;
 use tungstenite::{Message, WebSocket};
 
 use crate::error::{Error, ProtocolError};
 use crate::protocol::{ClientMessage, ServerMessage};
 
-/// A WebSocket wrapper that encodes and decodes Archipelago protocol messages.
-pub(crate) struct Socket<S>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    /// The Mio struct that polls for new events, if we own it. If this is None,
-    /// the poll is owned by the caller so that they can wait on multiple
-    /// different events at once.
-    _poll: Option<Poll>,
+/// A WebSocket wrapper that receives Archipelago protocol messages from the
+/// server and decodes them.
+pub(crate) struct Socket<S: DeserializeOwned> {
+    /// The async wrapper for the TCP stream. We use this to determine when it's
+    /// readable and writable.
+    async_stream: Arc<Async<SyncTcpStream>>,
 
     /// The WebSocket that this wraps.
-    inner: WebSocket<MaybeTlsStream<TcpStream>>,
+    inner: WebSocket<MaybeTlsStream<SyncTcpStream>>,
 
     /// The buffer of messages that have yet to be returned, in cases where the
     /// server sends multiple messages at a time.
     messages: VecDeque<ServerMessage<S>>,
 }
 
-impl<S> Socket<S>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
+impl<S: DeserializeOwned> Socket<S> {
     /// Begins the process of establishing a WebSocket connection using the
     /// given [request] (which may be passed as a simple `ws://` or `wss://`
     /// URL).
@@ -46,13 +41,13 @@ where
     /// This returns a [MidHandshakeSocket] for which
     /// [MidHandshakeSocket.handshake] must be called until it returns a
     /// [Socket].
-    pub(crate) fn connect(request: impl IntoClientRequest) -> Result<MidHandshakeSocket, Error> {
+    pub(crate) async fn connect(request: impl IntoClientRequest) -> Result<Self, Error> {
         let request = request.into_client_request()?;
         let domain = request
             .uri()
             .host()
             .map(|h| h.to_string())
-            .ok_or(UrlError::NoHostName)?;
+            .ok_or(tungstenite::Error::Url(UrlError::NoHostName))?;
         let port = request
             .uri()
             .port_u16()
@@ -61,39 +56,70 @@ where
                 Some("ws") => Some(80),
                 _ => None,
             })
-            .ok_or(UrlError::UnsupportedUrlScheme)?;
+            .ok_or(tungstenite::Error::Url(UrlError::UnsupportedUrlScheme))?;
 
-        log::debug!("Resolving DNS for {domain}...");
-        let Some(mut addr) = format!("{domain}:{port}").to_socket_addrs()?.next() else {
-            return Err(UrlError::UnableToConnect(format!("{domain}:{port}")).into());
+        debug!("Establishing TCP connection to {domain}:{port}...");
+        let stream = AsyncTcpStream::connect(format!("{domain}:{port}")).await?;
+        let async_stream = Arc::<Async<SyncTcpStream>>::from(stream.clone());
+
+        #[cfg(unix)]
+        let stream = SyncTcpStream::from(stream.as_fd().try_clone_to_owned()?);
+        #[cfg(windows)]
+        let stream = SyncTcpStream::from(stream.as_socket().try_clone_to_owned()?);
+
+        async_stream.writable().await?;
+        let maybe_tls_stream = match tungstenite::client::uri_mode(request.uri())? {
+            Mode::Plain => {
+                debug!("Upgrading to WebSocket...");
+                MaybeTlsStream::Plain(stream)
+            }
+            Mode::Tls => {
+                debug!("Upgrading to TLS...");
+                let connector = TlsConnector::new()
+                    .map_err(|e| tungstenite::Error::Tls(TlsError::Native(Box::new(e))))?;
+                let mut handshake = connector.connect(domain.as_str(), stream);
+                loop {
+                    match handshake {
+                        Ok(socket) => {
+                            debug!("Upgrading to WebSocket...");
+                            break MaybeTlsStream::NativeTls(socket);
+                        }
+                        Err(TlsHandshakeError::Failure(err)) => {
+                            return Err(
+                                tungstenite::Error::Tls(TlsError::Native(Box::new(err))).into()
+                            );
+                        }
+                        Err(TlsHandshakeError::WouldBlock(new_handshake)) => {
+                            async_stream.readable().await?;
+                            handshake = new_handshake.handshake();
+                        }
+                    }
+                }
+            }
         };
-        addr.set_port(port);
 
-        log::debug!("Establishing TCP connection to {addr}...");
-        let mut socket = TcpStream::connect(addr)?;
-        let poll = Poll::new().map_err(tungstenite::Error::Io)?;
-        poll.registry().register(
-            &mut socket,
-            Token(0),
-            Interest::READABLE | Interest::WRITABLE,
-        )?;
+        let mut handshake = ClientHandshake::start(maybe_tls_stream, request, None)?;
+        loop {
+            match handshake.handshake() {
+                Ok((inner, response)) => {
+                    debug!(
+                        "WebSocket response: {}\n{:?}",
+                        response.status(),
+                        response.headers()
+                    );
 
-        let handshake = MidHandshakeSocket {
-            poll,
-            state: MidHandshakeState::TcpConnecting {
-                request,
-                domain,
-                socket,
-            },
-        };
-
-        match handshake.force_handshake::<S>(false) {
-            // Since multiple handshake steps require remote responses to
-            // requests we send out, there's no way the whole process will
-            // finish in the initial call.
-            Ok(_) => panic!("socket connection completed way too fast"),
-            Err(SocketHandshakeError::WouldBlock(handshake)) => Ok(handshake),
-            Err(SocketHandshakeError::Failure(err)) => Err(err),
+                    return Ok(Socket {
+                        async_stream,
+                        inner,
+                        messages: Default::default(),
+                    });
+                }
+                Err(WsHandshakeError::Interrupted(new_handshake)) => {
+                    handshake = new_handshake;
+                    async_stream.readable().await?;
+                }
+                Err(WsHandshakeError::Failure(err)) => return Err(err.into()),
+            }
         }
     }
 
@@ -126,7 +152,7 @@ where
                 }
 
                 Ok(Message::Binary(bytes)) => {
-                    return Err(ProtocolError::BinaryMessage(bytes.to_vec()).into())
+                    return Err(ProtocolError::BinaryMessage(bytes.to_vec()).into());
                 }
 
                 // Other message types like pings, frames, and closes are
@@ -144,6 +170,17 @@ where
         }
     }
 
+    /// Like [try_recv], but returns a Future that only resolves once a message
+    /// is available.
+    pub(crate) async fn recv_async(&mut self) -> Result<ServerMessage<S>, Error> {
+        loop {
+            match self.try_recv()? {
+                Some(message) => return Ok(message),
+                None => self.async_stream.readable().await?,
+            }
+        }
+    }
+
     /// Sends [message] to the server.
     pub(crate) fn send(&mut self, message: ClientMessage) -> Result<(), Error> {
         self.inner
@@ -156,243 +193,5 @@ where
             }))?;
         self.inner.flush()?;
         Ok(())
-    }
-}
-
-/// The intermediate state of a [Socket] during the process of connecting, doing
-/// a TLS handshake if necessary, and then doing a WebSocket handshake.
-///
-/// This persists the connection state across each step without requiring the
-/// thread to block and keep it all on the stack.
-pub(crate) struct MidHandshakeSocket {
-    poll: Poll,
-
-    /// The current intermediate state of the connection.
-    state: MidHandshakeState,
-}
-
-impl MidHandshakeSocket {
-    /// Continues the handshake process.
-    ///
-    /// This should be called periodically (often once each frame) to progress
-    /// the internal handshake process. Once the process succeeds, this will
-    /// return a fully-initialized [Socket].
-    pub(crate) fn handshake<S>(mut self) -> Result<Socket<S>, SocketHandshakeError>
-    where
-        S: for<'a> serde::de::Deserialize<'a>,
-    {
-        let mut events = Events::with_capacity(1024);
-
-        // Ignore the output here. This is going to time out any time there
-        // aren't events immediately available, and the MIO docs say that it
-        // may not return `Ok(())` in the future without indicating what it
-        // will return. We just check the list of events to see if there are
-        // any to process.
-        let _ = self.poll.poll(&mut events, Some(Duration::ZERO));
-
-        // If there aren't any events on the socket, there's no point in
-        // checking for updates. If there are, we don't care what they are
-        // specifically because the only thing we're watching is the
-        // underlying socket.
-        if events.is_empty() {
-            return Err(SocketHandshakeError::WouldBlock(self));
-        }
-
-        self.force_handshake(events.into_iter().any(|e| e.is_writable()))
-    }
-
-    /// Like [handshake], but doesn't abort early if [poll] has no events.
-    fn force_handshake<S>(mut self, writable: bool) -> Result<Socket<S>, SocketHandshakeError>
-    where
-        S: for<'a> serde::de::Deserialize<'a>,
-    {
-        use MidHandshakeState::*;
-        match self.state {
-            // The first state follows the logic recommended by
-            // https://docs.rs/mio/latest/mio/net/struct.TcpStream.html#method.connect.
-            TcpConnecting {
-                request,
-                domain,
-                socket,
-            } => {
-                match socket.take_error() {
-                    Ok(Some(err)) => Err(err),
-                    Ok(None) => Ok(()),
-                    Err(err) => Err(err),
-                }?;
-                match socket.peer_addr() {
-                    // TODO: Socket may not be writeable here. Need a better way
-                    // to detect that.
-                    Ok(_) if writable => match tungstenite::client::uri_mode(request.uri())? {
-                        Mode::Plain => {
-                            log::debug!("Upgrading to WebSocket...");
-                            MidHandshakeSocket {
-                                poll: self.poll,
-                                state: MidHandshakeState::WsConnecting {
-                                    handshake: ClientHandshake::start(
-                                        MaybeTlsStream::Plain(socket),
-                                        request,
-                                        None,
-                                    )?,
-                                },
-                            }
-                            .force_handshake(true)
-                        }
-                        Mode::Tls => {
-                            log::debug!("Upgrading to TLS...");
-                            let connector =
-                                TlsConnector::new().map_err(|e| TlsError::Native(Box::new(e)))?;
-                            Self::handle_tls_handshake(
-                                self.poll,
-                                request,
-                                connector.connect(domain.as_str(), socket),
-                            )
-                        }
-                    },
-                    Err(err)
-                        if err.kind() != io::ErrorKind::NotConnected
-                            && err.raw_os_error() != Some(libc::EINPROGRESS) =>
-                    {
-                        Err(err.into())
-                    }
-                    _ => {
-                        self.state = TcpConnecting {
-                            request,
-                            domain,
-                            socket,
-                        };
-                        Err(SocketHandshakeError::WouldBlock(self))
-                    }
-                }
-            }
-
-            TlsConnecting { request, handshake } => {
-                Self::handle_tls_handshake(self.poll, request, handshake.handshake())
-            }
-
-            WsConnecting { handshake } => match handshake.handshake() {
-                Ok((inner, response)) => {
-                    log::debug!(
-                        "WebSocket response: {}\n{:?}",
-                        response.status(),
-                        response.headers()
-                    );
-
-                    Ok(Socket {
-                        _poll: Some(self.poll),
-                        inner,
-                        messages: Default::default(),
-                    })
-                }
-                Err(WsHandshakeError::Interrupted(handshake)) => {
-                    self.state = WsConnecting { handshake };
-                    Err(SocketHandshakeError::WouldBlock(self))
-                }
-                Err(WsHandshakeError::Failure(err)) => Err(err.into()),
-            },
-        }
-    }
-
-    /// Returns the next state based on the result of a (potentially in-progress)
-    /// TLS handshake.
-    fn handle_tls_handshake<S>(
-        poll: Poll,
-        request: Request,
-        result: Result<TlsStream<TcpStream>, TlsHandshakeError<TcpStream>>,
-    ) -> Result<Socket<S>, SocketHandshakeError>
-    where
-        S: for<'a> serde::de::Deserialize<'a>,
-    {
-        match result {
-            Ok(socket) => {
-                log::debug!("Upgrading to WebSocket...");
-                MidHandshakeSocket {
-                    poll,
-                    state: MidHandshakeState::WsConnecting {
-                        handshake: ClientHandshake::start(
-                            MaybeTlsStream::NativeTls(socket),
-                            request,
-                            None,
-                        )?,
-                    },
-                }
-                .force_handshake(true)
-            }
-            Err(TlsHandshakeError::Failure(err)) => Err(TlsError::Native(Box::new(err)).into()),
-            Err(TlsHandshakeError::WouldBlock(handshake)) => {
-                Err(SocketHandshakeError::WouldBlock(MidHandshakeSocket {
-                    poll,
-                    state: MidHandshakeState::TlsConnecting { request, handshake },
-                }))
-            }
-        }
-    }
-}
-
-/// The current intermediate state of an intermediate connection, minus any data
-/// that's common to the entire process.
-enum MidHandshakeState {
-    /// The initial [TcpStream] connection is being established.
-    TcpConnecting {
-        /// The request to make to establish the WebSocket connection.
-        request: Request,
-
-        /// The domain name of the WebSocket server.
-        domain: String,
-
-        /// The (not not yet initialized) socket.
-        socket: TcpStream,
-    },
-
-    /// A TLS handshake is in progress. This state is skipped for non-TLS URLs.
-    TlsConnecting {
-        request: Request,
-
-        /// The intermediate state of the TLS handshake.
-        handshake: MidHandshakeTlsStream<TcpStream>,
-    },
-
-    /// The WebSocket handshake is in progress.
-    WsConnecting {
-        /// The intermediate state of the WebSocket handshake.
-        handshake: MidHandshakeWebSocket<ClientHandshake<MaybeTlsStream<TcpStream>>>,
-    },
-}
-
-/// Any outcome of running a [Socket] handshake that isn't a fully-initialized
-/// socket.
-///
-/// Despite the name, this doesn't always represent an error. The [WouldBlock]
-/// state indicates that the handshake is currently waiting for a remote
-/// response, and should be checked later by calling
-/// [MidHandshakeSocket.handshake]. The [Failure] state instead represents a
-/// true error.
-#[derive(ThisError)]
-pub(crate) enum SocketHandshakeError {
-    /// The handshake is currently waiting for a remote response, and should be
-    /// checked later by calling [MidHandshakeSocket.handshake].
-    #[error("the handshake process was interrupted")]
-    WouldBlock(MidHandshakeSocket),
-
-    /// Something has gone wrong with the connection.
-    #[error("{0}")]
-    Failure(Error),
-}
-
-impl fmt::Debug for SocketHandshakeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            SocketHandshakeError::WouldBlock(_) => write!(f, "{}", self),
-            SocketHandshakeError::Failure(err) => err.fmt(f),
-        }
-    }
-}
-
-impl<E> From<E> for SocketHandshakeError
-where
-    E: Into<Error>,
-{
-    fn from(value: E) -> Self {
-        SocketHandshakeError::Failure(value.into())
     }
 }

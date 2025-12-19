@@ -15,7 +15,11 @@ pub enum Error {
     /// error is [tungstenite::Error::ConnectionClosed], that means that the
     /// connection closed normally.
     #[error("{0}")]
-    WebSocket(tungstenite::Error),
+    WebSocket(#[from] tungstenite::Error),
+
+    /// An error occurred with the underlying asynchrony library.
+    #[error("{0}")]
+    Async(#[from] smol::io::Error),
 
     /// The Archipelago server rejected the connection.
     #[error("Archipelago refused connection: {}", .0.iter().map(|e| format!("{e:?}")).collect::<Vec<_>>().join(", "))]
@@ -40,18 +44,18 @@ pub enum Error {
     #[error("Archipelago server violated the expected protocol: {0}")]
     ProtocolError(#[from] ProtocolError),
 
-    /// [Connection::into_err] was called when there was no error.
-    #[error("Connection::into_err called before client disconnected")]
-    NoError,
-}
+    /// The client has manually disconnected. This is used when
+    /// [Connection::into_err] is called when there was no error, and it's also
+    /// used as the error value of [Connection::default].
+    #[error("the client ended the connection")]
+    ClientDisconnected,
 
-impl<E> From<E> for Error
-where
-    E: Into<tungstenite::Error>,
-{
-    fn from(value: E) -> Self {
-        Error::WebSocket(value.into())
-    }
+    /// A placeholder used when the full error is available elsewhere. Used when
+    /// a future is canceled because the underlying connection failed or in the
+    /// events returned by [Connection::update] because the actual error is
+    /// stored in [Connection::state].
+    #[error("a full error is available elsewhere")]
+    Elsewhere,
 }
 
 /// Possible individual errors that can cause an initial Archipelago connection

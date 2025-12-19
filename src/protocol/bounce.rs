@@ -1,9 +1,9 @@
 use std::time::SystemTime;
 
-use serde::{de::Error, ser::*, Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error, ser::*};
 use serde_json;
 use serde_json::Value;
-use serde_with::{serde_as, TimestampSeconds};
+use serde_with::{TimestampSeconds, serde_as};
 
 #[derive(Debug, Clone)]
 pub struct Bounced {

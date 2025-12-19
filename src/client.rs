@@ -1,10 +1,20 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::{connection::Socket, protocol::*, Error, ProtocolError};
+use serde::de::DeserializeOwned;
+
+use crate::{ConnectionOptions, Error, ProtocolError, Socket, protocol::*};
 
 mod death_link_options;
 
 pub use death_link_options::*;
+
+/// The version of the Archipelago server that this client supports.
+const VERSION: NetworkVersion = NetworkVersion {
+    major: 0,
+    minor: 6,
+    build: 0,
+    class: String::new(),
+};
 
 /// The client that talks to the Archipelago server using the Archipelago
 /// protocol.
@@ -13,13 +23,12 @@ pub use death_link_options::*;
 /// [Connected] message. By default, it will decode the slot data as a dynamic
 /// JSON blob.
 ///
-/// This isn't constructed directly. Instead, use [Connection] which represents
-/// any possible state a connection can inhabit.
-pub struct Client<S = serde_json::Value>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    ws: Socket<S>,
+/// This isn't currently possible to construct directly. Instead, use
+/// [Connection] which represents any possible state a connection can inhabit.
+pub struct Client<S: DeserializeOwned = serde_json::Value> {
+    socket: Socket<S>,
+
+    // == Session information
     game: String,
     server_version: NetworkVersion,
     generator_version: NetworkVersion,
@@ -42,13 +51,85 @@ where
     local_locations_checked: HashMap<i64, bool>,
 }
 
-impl<S> Client<S>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
+impl<S: DeserializeOwned> Client<S> {
+    /// Asynchronously initializes a client connection to an Archipelago server.
+    pub async fn connect(
+        url: String,
+        game: String,
+        name: String,
+        options: ConnectionOptions,
+    ) -> Result<Client<S>, Error> {
+        let mut socket = Socket::<S>::connect(url).await?;
+
+        log::debug!("Awaiting RoomInfo...");
+        let room_info = match socket.recv_async().await? {
+            ServerMessage::RoomInfo(room_info) => room_info,
+            message => {
+                return Err(ProtocolError::UnexpectedResponse {
+                    actual: message.type_name(),
+                    expected: "RoomInfo",
+                }
+                .into());
+            }
+        };
+
+        // TODO: cache data packages and only ask for those that are outdated.
+        log::debug!("Awaiting DataPackage...");
+        socket.send(ClientMessage::GetDataPackage(GetDataPackage {
+            games: None,
+        }))?;
+
+        let data_package = match socket.recv_async().await? {
+            ServerMessage::DataPackage(DataPackage { data }) => data,
+            message => {
+                return Err(ProtocolError::UnexpectedResponse {
+                    actual: message.type_name(),
+                    expected: "DataPackage",
+                }
+                .into());
+            }
+        };
+
+        log::debug!("Awaiting Connected...");
+        let mut version = VERSION.clone();
+        version.class = "Version".into();
+        socket.send(ClientMessage::Connect(Connect {
+            password: options.password,
+            game: game.clone(),
+            name,
+            // Specify something useful here if
+            // ArchipelagoMW/Archipelago#998 ever gets sorted out.
+            uuid: "".into(),
+            version: version.clone(),
+            items_handling: options.items_handling.bits(),
+            tags: options.tags,
+            slot_data: options.slot_data,
+        }))?;
+
+        let connected = match socket.recv_async().await? {
+            ServerMessage::Connected(connected) => connected,
+            ServerMessage::ConnectionRefused(ConnectionRefused { errors }) => {
+                return Err(Error::ConnectionRefused(
+                    errors.into_iter().map(|e| e.into()).collect(),
+                ));
+            }
+            message => {
+                return Err(ProtocolError::UnexpectedResponse {
+                    actual: message.type_name(),
+                    expected: "Connected",
+                }
+                .into());
+            }
+        };
+
+        let client = Client::new(socket, game, room_info, data_package, connected)?;
+        log::info!("Archipelago connection initialized succesfully");
+        Ok(client)
+    }
+
     /// Creates a new client with all available initial information.
-    pub(crate) fn new(
-        ws: Socket<S>,
+    fn new(
+        socket: Socket<S>,
         game: String,
         room_info: RoomInfo,
         data_package: DataPackageObject,
@@ -87,7 +168,7 @@ where
         }
 
         Ok(Client {
-            ws,
+            socket,
             game,
             server_version: room_info.version,
             generator_version: room_info.generator_version,
@@ -107,6 +188,8 @@ where
             local_locations_checked,
         })
     }
+
+    // == Session information
 
     /// The name of the game that's currently being played.
     pub fn game(&self) -> &str {
@@ -230,8 +313,59 @@ where
         self.groups.as_slice()
     }
 
-    /// Checks for new messages on [ws].
-    pub(crate) fn update(&mut self) -> Result<(), Error> {
-        todo!()
+    // == Event handling
+
+    /// Returns any pending [Event]s from the Archipelago server and updates the
+    /// rest of the client's state to accommodate new information.
+    ///
+    /// This call never blocks, and is expected to be called repeatedly in order
+    /// to check for new messages from the underlying connection to Archipelago.
+    /// Typically a caller that's integrated Archipelago into a game loop will
+    /// call this once each frame.
+    ///
+    /// Unless this is called (or [Connection.update], which calls this), the
+    /// client will never change state.
+    pub fn update(&mut self) -> Vec<Event> {
+        let mut events = Vec::<Event>::new();
+        loop {
+            match self.socket.try_recv() {
+                Ok(Some(_event)) => {
+                    // TODO: dispatch events
+                }
+                Ok(None) => return events,
+                Err(err) => {
+                    events.push(Event::Error(err));
+                    return events;
+                }
+            }
+        }
     }
+}
+
+// The only reason Client doesn't automatically implement [Unpin] is that S
+// might not implement it (although being decoded from JSON it probably does).
+// Since we treat slot data as immutable anyway, we can guarantee that nothing
+// will change and so it's safe to declare the entire Client as Unpin.
+impl<S> Unpin for Client<S> where S: DeserializeOwned {}
+
+/// Events from the Archipelago server that clients may want to handle.
+///
+/// This only encompasses events that can be spontaneously sent by the server.
+/// Events that are only ever sent as replies to client requests are represented
+/// as [Future]s instead.
+pub enum Event {
+    /// The client has established a successful connection. This is only emitted
+    /// from [Connection.update] and only once, always as the first event.
+    Connected,
+
+    /// The client has encountered an error.
+    ///
+    /// Once this event has been emitted, the client should be considered
+    /// closed. It will emit no more events and any attempts to send requests
+    /// will fail.
+    ///
+    /// When emitted from [Connection.update], this will be [Error::Elsewhere]
+    /// and the actual error will be available from [Connection.state] or
+    /// [Connection.into_err].
+    Error(Error),
 }

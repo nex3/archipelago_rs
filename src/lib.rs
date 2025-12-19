@@ -3,9 +3,11 @@
 
 mod client;
 mod connection;
+mod connection_options;
 mod error;
 pub mod protocol;
 
 pub use client::*;
 pub use connection::*;
+pub use connection_options::*;
 pub use error::*;

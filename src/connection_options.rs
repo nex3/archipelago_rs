@@ -13,7 +13,8 @@ impl ConnectionOptions {
     pub fn new() -> Self {
         Self {
             password: None,
-            items_handling: ItemsHandlingFlags::OTHER_WORLDS | ItemsHandlingFlags::STARTING_INVENTORY,
+            items_handling: ItemsHandlingFlags::OTHER_WORLDS
+                | ItemsHandlingFlags::STARTING_INVENTORY,
             tags: Vec::new(),
             slot_data: true,
         }
