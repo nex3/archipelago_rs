@@ -1,4 +1,5 @@
 use std::cmp::{Eq, PartialEq};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 
@@ -60,6 +61,16 @@ impl Location {
         }
     }
 
+    /// If [id] represents a well-known universal location like [cheat_console]
+    /// or [server], returns a clone of that location's [Arc].
+    pub(crate) fn well_known_arc(id: i64) -> Option<Arc<Location>> {
+        match id {
+            -1 => Some(CHEAT_CONSOLE.clone()),
+            -2 => Some(SERVER.clone()),
+            _ => None,
+        }
+    }
+
     /// This location's numeric ID.
     pub fn id(&self) -> i64 {
         self.id
@@ -73,6 +84,12 @@ impl Location {
     /// This game this location exists in.
     pub fn game(&self) -> &str {
         self.game.as_str()
+    }
+}
+
+impl fmt::Display for Location {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
     }
 }
 

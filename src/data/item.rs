@@ -1,4 +1,5 @@
 use std::cmp::{Eq, PartialEq};
+use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -29,6 +30,12 @@ impl Item {
     /// This game this item exists in.
     pub fn game(&self) -> &str {
         self.game.as_str()
+    }
+}
+
+impl fmt::Display for Item {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.name.fmt(f)
     }
 }
 

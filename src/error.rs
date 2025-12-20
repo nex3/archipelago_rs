@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use thiserror::Error as ThisError;
 
 use crate::protocol::ClientMessage;
@@ -141,10 +143,10 @@ pub enum ProtocolError {
         expected: &'static str,
     },
 
-    /// The team and slot numbers for the current player don't match anything in
-    /// the players list.
+    /// The team and slot numbers for a player don't match anything in the
+    /// players list.
     #[error("Connected packet was missing player on slot {slot}, team {team}")]
-    MissingNetworkPlayer {
+    MissingPlayer {
         /// The current player's team number.
         team: u64,
 
@@ -158,5 +160,25 @@ pub enum ProtocolError {
 
     /// The data package for the current game wasn't provided by the server.
     #[error("no data package provided for {0}")]
-    MissingGameData(String),
+    MissingGameData(Arc<String>),
+
+    /// An item has an ID that doesn't appear in its data package.
+    #[error("item {id} is missing {game}'s data package")]
+    MissingItem {
+        /// The ID of the item.
+        id: i64,
+
+        /// The name of the game that was expected to have this item ID.
+        game: Arc<String>,
+    },
+
+    /// A location has an ID that doesn't appear in its data package.
+    #[error("location {id} is missing {game}'s data package")]
+    MissingLocation {
+        /// The ID of the location.
+        id: i64,
+
+        /// The name of the game that was expected to have this location ID.
+        game: Arc<String>,
+    },
 }

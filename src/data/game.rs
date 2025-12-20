@@ -2,7 +2,7 @@ use std::sync::{Arc, LazyLock};
 use std::{collections::HashMap, fmt};
 
 use super::{AsItemId, AsLocationId, CHEAT_CONSOLE, Item, Location, SERVER};
-use crate::{Iter, OwnedKey, protocol::GameData};
+use crate::{Error, Iter, OwnedKey, ProtocolError, protocol::GameData};
 
 /// The name of the special Archipelago game that's used for well-known
 /// locations.
@@ -138,6 +138,21 @@ impl Game {
             .map(|i| self.items[*i].as_ref())
     }
 
+    /// Returns a clone of the [Arc] for the item with the given [id].
+    pub(crate) fn item_arc(&self, id: impl AsItemId) -> Result<Arc<Item>, Error> {
+        let id = id.as_item_id();
+        self.items_by_id
+            .get(&id)
+            .map(|i| self.items[*i].clone())
+            .ok_or_else(|| {
+                ProtocolError::MissingItem {
+                    id,
+                    game: self.name.clone(),
+                }
+                .into()
+            })
+    }
+
     /// Returns the item for the given [id]. Panics if there's no item with this
     /// ID.
     pub fn assert_item(&self, id: impl AsItemId) -> &Item {
@@ -167,6 +182,21 @@ impl Game {
         self.locations_by_id
             .get(&id.as_location_id())
             .map(|i| self.locations[*i].as_ref())
+    }
+
+    /// Returns a clone of the [Arc] for the location with the given [id].
+    pub(crate) fn location_arc(&self, id: impl AsLocationId) -> Result<Arc<Location>, Error> {
+        let id = id.as_location_id();
+        self.locations_by_id
+            .get(&id)
+            .map(|i| self.locations[*i].clone())
+            .ok_or_else(|| {
+                ProtocolError::MissingLocation {
+                    id,
+                    game: self.name.clone(),
+                }
+                .into()
+            })
     }
 
     /// Returns the location for the given [id]. Panics if there's no location

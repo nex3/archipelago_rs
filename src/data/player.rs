@@ -52,6 +52,11 @@ impl Player {
     pub fn game(&self) -> &str {
         self.game.as_str()
     }
+
+    /// Clones the arg for the name of the game this player is playing.
+    pub fn game_arc(&self) -> Arc<String> {
+        self.game.clone()
+    }
 }
 
 /// Displays the player's alias.

@@ -169,7 +169,7 @@ impl<S: DeserializeOwned> Client<S> {
         let player_index = players
             .iter()
             .position(|p| p.team() == connected.team && p.slot() == connected.slot)
-            .ok_or_else(|| ProtocolError::MissingNetworkPlayer {
+            .ok_or_else(|| ProtocolError::MissingPlayer {
                 team: connected.team,
                 slot: connected.slot,
             })?;
@@ -198,7 +198,7 @@ impl<S: DeserializeOwned> Client<S> {
             games
                 // Safety: This is only used for the duration of the get.
                 .get(&unsafe { OwnedKey::from(&game) })
-                .ok_or_else(|| ProtocolError::MissingGameData(game))?,
+                .ok_or_else(|| ProtocolError::MissingGameData(game.into()))?,
         );
 
         Ok(Client {
@@ -346,6 +346,16 @@ impl<S: DeserializeOwned> Client<S> {
             .map(|p| p.as_ref())
     }
 
+    /// CLones the Arc for the player on the given [team] playing the given
+    /// [slot].
+    pub fn player_arc(&self, team: u64, slot: u64) -> Result<Arc<Player>, Error> {
+        self.players
+            .iter()
+            .find(|p| p.team() == team && p.slot() == slot)
+            .map(|p| p.clone())
+            .ok_or_else(|| ProtocolError::MissingPlayer { team, slot }.into())
+    }
+
     /// The player on the given [team] playing the given [slot]. Panics if this
     /// player doesn't exist.
     ///
@@ -366,11 +376,17 @@ impl<S: DeserializeOwned> Client<S> {
         self.player(self.this_player().team(), slot)
     }
 
+    /// A clone of the [Arc] for the player playing the given [slot] on the
+    /// current player's team.
+    pub(crate) fn teammate_arc(&self, slot: u64) -> Result<Arc<Player>, Error> {
+        self.player_arc(self.this_player().team(), slot)
+    }
+
     /// The player playing the given [slot] on the current player's team. Panics
     /// if this player doesn't exist.
     ///
     /// See also [assert_teammate] to only check the current player's team.
-    pub fn assert_teammate(&self, team: u64, slot: u64) -> &Player {
+    pub fn assert_teammate(&self, slot: u64) -> &Player {
         self.assert_player(self.this_player().team(), slot)
     }
 
