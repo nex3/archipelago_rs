@@ -5,7 +5,7 @@ use std::hash::{Hash, Hasher};
 use ustr::Ustr;
 
 /// An Archipelago item for some player's game.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Item {
     id: i64,
     name: Ustr,

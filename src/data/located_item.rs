@@ -8,8 +8,8 @@ use crate::{Client, Error, Item, Location, Player, ProtocolError};
 /// An item associated with a particular location in particular player's world.
 #[derive(Clone)]
 pub struct LocatedItem {
-    item: Arc<Item>,
-    location: Arc<Location>,
+    item: Item,
+    location: Location,
     player: Arc<Player>,
     flags: NetworkItemFlags,
 }
@@ -25,10 +25,10 @@ impl LocatedItem {
             .game(player.game())
             .ok_or_else(|| ProtocolError::MissingGameData(player.game()))?;
         Ok(LocatedItem {
-            item: game.item_arc(network.item)?,
-            location: match Location::well_known_arc(network.location) {
+            item: game.item_or_err(network.item)?,
+            location: match Location::well_known(network.location) {
                 Some(location) => location,
-                None => game.location_arc(network.location)?,
+                None => game.location_or_err(network.location)?,
             },
             player,
             flags: network.flags,
@@ -36,13 +36,13 @@ impl LocatedItem {
     }
 
     /// The item at this location.
-    pub fn item(&self) -> &Item {
-        self.item.as_ref()
+    pub fn item(&self) -> Item {
+        self.item
     }
 
     /// The location that contains this item.
-    pub fn location(&self) -> &Location {
-        self.location.as_ref()
+    pub fn location(&self) -> Location {
+        self.location
     }
 
     /// The player to which this item belongs.

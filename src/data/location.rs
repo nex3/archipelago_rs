@@ -1,14 +1,14 @@
 use std::cmp::{Eq, PartialEq};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, LazyLock};
+use std::sync::LazyLock;
 
 use ustr::Ustr;
 
 use crate::ARCHIPELAGO_NAME;
 
 /// A location in a game where an item may be placed.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Location {
     id: i64,
     name: Ustr,
@@ -17,22 +17,18 @@ pub struct Location {
 
 /// The well-known cheat console location. This is stored as an Arc so it can be
 /// used in places that expect other locations.
-pub(crate) static CHEAT_CONSOLE: LazyLock<Arc<Location>> = LazyLock::new(|| {
-    Arc::new(Location {
-        id: -1,
-        name: "Cheat Console".to_string().into(),
-        game: *ARCHIPELAGO_NAME,
-    })
+static CHEAT_CONSOLE: LazyLock<Location> = LazyLock::new(|| Location {
+    id: -1,
+    name: "Cheat Console".to_string().into(),
+    game: *ARCHIPELAGO_NAME,
 });
 
 /// The well-known server location. This is stored as an Arc so it can be used
 /// in places that expect other locations.
-pub(crate) static SERVER: LazyLock<Arc<Location>> = LazyLock::new(|| {
-    Arc::new(Location {
-        id: -2,
-        name: "Server".to_string().into(),
-        game: *ARCHIPELAGO_NAME,
-    })
+static SERVER: LazyLock<Location> = LazyLock::new(|| Location {
+    id: -2,
+    name: "Server".to_string().into(),
+    game: *ARCHIPELAGO_NAME,
 });
 
 impl Location {
@@ -43,32 +39,22 @@ impl Location {
 
     /// The special location indicating that an item came from the cheat
     /// console.
-    pub fn cheat_console() -> &'static Location {
-        CHEAT_CONSOLE.as_ref()
+    pub fn cheat_console() -> Location {
+        *CHEAT_CONSOLE
     }
 
     /// The special location indicating that an item came from the server
     /// (typically starting inventory items).
-    pub fn server() -> &'static Location {
-        SERVER.as_ref()
+    pub fn server() -> Location {
+        *SERVER
     }
 
     /// If [id] represents a well-known universal location like [cheat_console]
     /// or [server], returns that location.
-    pub fn well_known(id: i64) -> Option<&'static Location> {
+    pub fn well_known(id: i64) -> Option<Location> {
         match id {
             -1 => Some(Self::cheat_console()),
             -2 => Some(Self::server()),
-            _ => None,
-        }
-    }
-
-    /// If [id] represents a well-known universal location like [cheat_console]
-    /// or [server], returns a clone of that location's [Arc].
-    pub(crate) fn well_known_arc(id: i64) -> Option<Arc<Location>> {
-        match id {
-            -1 => Some(CHEAT_CONSOLE.clone()),
-            -2 => Some(SERVER.clone()),
             _ => None,
         }
     }
