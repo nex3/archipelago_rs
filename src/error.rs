@@ -155,4 +155,8 @@ pub enum ProtocolError {
     /// A player has a slot number that doesn't appear in `Connected.slot_info`.
     #[error("slot {0} is missing from Connected.slot_info")]
     MissingSlotInfo(u64),
+
+    /// The data package for the current game wasn't provided by the server.
+    #[error("no data package provided for {0}")]
+    MissingGameData(String),
 }

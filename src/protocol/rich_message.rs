@@ -254,30 +254,8 @@ impl RichMessagePart {
                     name.replace(player.alias.clone());
                 }
             }
-            ItemId {
-                id, player, name, ..
-            } => {
-                if let Some(item) = connected
-                    .slot_info
-                    .get(player)
-                    .and_then(|s| data_package.games.get(s.game.as_ref()))
-                    .and_then(|g| g.item_name_to_id.get_by_right(id))
-                {
-                    name.replace(item.clone());
-                }
-            }
-            LocationId {
-                id, player, name, ..
-            } => {
-                if let Some(item) = connected
-                    .slot_info
-                    .get(player)
-                    .and_then(|s| data_package.games.get(s.game.as_ref()))
-                    .and_then(|g| g.location_name_to_id.get_by_right(id))
-                {
-                    name.replace(item.clone());
-                }
-            }
+            ItemId { .. } => todo!(),
+            LocationId { .. } => todo!(),
             _ => {}
         }
     }

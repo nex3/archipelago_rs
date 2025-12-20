@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::{fmt::Display, sync::Arc};
 
-use bimap::BiHashMap;
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -193,7 +192,6 @@ pub struct Connect {
     pub version: NetworkVersion,
     pub items_handling: u8,
     pub tags: Vec<String>,
-    #[serde(rename = "slot_data")]
     pub slot_data: bool,
 }
 
@@ -405,13 +403,13 @@ pub struct DataPackage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataPackageObject {
-    pub games: HashMap<String, GameData>,
+    pub games: HashMap<Arc<String>, GameData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameData {
-    pub item_name_to_id: BiHashMap<Arc<String>, i64>,
-    pub location_name_to_id: BiHashMap<Arc<String>, i64>,
+    pub item_name_to_id: HashMap<Arc<String>, i64>,
+    pub location_name_to_id: HashMap<Arc<String>, i64>,
     pub checksum: String,
 }
 

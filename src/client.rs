@@ -1,10 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::iter::{FusedIterator, Iterator};
-use std::{slice, sync::Arc};
+use std::{ptr, sync::Arc};
 
 use serde::de::DeserializeOwned;
 
-use crate::{ConnectionOptions, Error, Player, ProtocolError, Socket, protocol::*};
+use crate::{
+    AsLocationId, ConnectionOptions, Error, Game, Iter, OwnedKey, Player, ProtocolError, Socket,
+    protocol::*,
+};
 
 mod death_link_options;
 
@@ -31,7 +33,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     socket: Socket<S>,
 
     // == Session information
-    game: String,
+    game: *const Game,
     server_version: NetworkVersion,
     generator_version: NetworkVersion,
     server_tags: HashSet<String>,
@@ -41,7 +43,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     hint_points_per_check: u64,
     hint_points: u64,
     seed_name: String,
-    data_package: DataPackageObject,
+    games: HashMap<OwnedKey<str>, Game>,
     player_index: usize,
     players: Vec<Arc<Player>>,
     slot_data: S,
@@ -180,6 +182,25 @@ impl<S: DeserializeOwned> Client<S> {
             local_locations_checked.insert(id, true);
         }
 
+        let games = data_package
+            .games
+            .into_iter()
+            .map(|(name, data)| {
+                (
+                    // Safety: The game will be owned by the game, which
+                    // will live as long as the HashMap.
+                    unsafe { OwnedKey::from_arc(&name) },
+                    Game::hydrate(name, data),
+                )
+            })
+            .collect::<HashMap<_, _>>();
+        let game = ptr::from_ref(
+            games
+                // Safety: This is only used for the duration of the get.
+                .get(&unsafe { OwnedKey::from(&game) })
+                .ok_or_else(|| ProtocolError::MissingGameData(game))?,
+        );
+
         Ok(Client {
             socket,
             game,
@@ -192,7 +213,7 @@ impl<S: DeserializeOwned> Client<S> {
             hint_points_per_check: room_info.location_check_points,
             hint_points: connected.hint_points,
             seed_name: room_info.seed_name,
-            data_package: data_package,
+            games,
             player_index,
             players,
             slot_data: connected.slot_data,
@@ -204,9 +225,11 @@ impl<S: DeserializeOwned> Client<S> {
 
     // == Session information
 
-    /// The name of the game that's currently being played.
-    pub fn game(&self) -> &str {
-        self.game.as_str()
+    /// The game that's currently being played.
+    pub fn this_game(&self) -> &Game {
+        // Safety: This game is stored in [games], which we own and which is
+        // never mutated.
+        unsafe { &*self.game }
     }
 
     /// The version of Archipelago which the server is running.
@@ -271,11 +294,36 @@ impl<S: DeserializeOwned> Client<S> {
         self.seed_name.as_str()
     }
 
-    // TODO: Convert [GameData] into something more usable/intuitive.
     /// A map from the names of each game in this multiworld to metadata about
     /// those games.
-    pub fn games(&self) -> &HashMap<String, GameData> {
-        &self.data_package.games
+    pub fn games(&self) -> impl Iter<&Game> {
+        self.games.values()
+    }
+
+    /// Returns the game with the given [name], if one is in this multiworld.
+    ///
+    /// Unlike [games], this will return the special [Game::archipelago] game.
+    pub fn game(&self, name: impl AsRef<str>) -> Option<&Game> {
+        let name = name.as_ref();
+        // Safety: We own the name for the duration of the call.
+        self.games
+            .get(&unsafe { OwnedKey::from(name) })
+            .or_else(|| {
+                let archipelago = Game::archipelago();
+                if name == archipelago.name() {
+                    Some(archipelago)
+                } else {
+                    None
+                }
+            })
+    }
+
+    /// Returns the game in this multiworld with the given [name]. Panics if
+    /// there's no game with that name.
+    pub fn assert_game(&self, name: impl AsRef<str>) -> &Game {
+        let name = name.as_ref();
+        self.game(name)
+            .unwrap_or_else(|| panic!("multiworld doesn't contain a game named \"{}\"", name))
     }
 
     /// The player that's currently connected to the multiworld.
@@ -284,8 +332,8 @@ impl<S: DeserializeOwned> Client<S> {
     }
 
     /// All players in the multiworld.
-    pub fn players(&self) -> Players<'_> {
-        Players(self.players.as_slice().into_iter())
+    pub fn players(&self) -> impl Iter<&Player> {
+        self.players.iter().map(|p| p.as_ref())
     }
 
     /// The player on the given [team] playing the given [slot], if one exists.
@@ -326,18 +374,19 @@ impl<S: DeserializeOwned> Client<S> {
         self.assert_player(self.this_player().team(), slot)
     }
 
-    // TODO: Take a Location object?
     /// Returns whether the local location with the given ID has been checked
     /// (either by us or by other players doing co-op).
     ///
     /// This may only be called for locations in the connected game's world.
     /// Panics if it's called with a location ID that doesn't exist for this
     /// world.
-    pub fn is_local_location_checked(&self, id: i64) -> bool {
+    pub fn is_local_location_checked(&self, id: impl AsLocationId) -> bool {
+        let id = id.as_location_id();
         *self.local_locations_checked.get(&id).unwrap_or_else(|| {
             panic!(
                 "Archipelago location ID {} doesn't exist for {}",
-                id, self.game
+                id,
+                self.this_game().name()
             )
         })
     }
@@ -397,31 +446,6 @@ impl<S: DeserializeOwned> Client<S> {
 // Since we treat slot data as immutable anyway, we can guarantee that nothing
 // will change and so it's safe to declare the entire Client as Unpin.
 impl<S> Unpin for Client<S> where S: DeserializeOwned {}
-
-/// The iterator for [Client.players].
-#[derive(Clone, Debug, Default)]
-pub struct Players<'a>(slice::Iter<'a, Arc<Player>>);
-
-impl<'a> Iterator for Players<'a> {
-    type Item = &'a Player;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.0.next().map(|a| a.as_ref())
-    }
-
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.0.size_hint()
-    }
-}
-
-impl DoubleEndedIterator for Players<'_> {
-    fn next_back(&mut self) -> Option<Self::Item> {
-        self.0.next_back().map(|a| a.as_ref())
-    }
-}
-
-impl ExactSizeIterator for Players<'_> {}
-impl FusedIterator for Players<'_> {}
 
 /// Events from the Archipelago server that clients may want to handle.
 ///
