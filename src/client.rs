@@ -2,10 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::{ptr, sync::Arc};
 
 use serde::de::DeserializeOwned;
+use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Game, Iter, OwnedKey, Player, ProtocolError, Socket,
-    protocol::*,
+    AsLocationId, ConnectionOptions, Error, Game, Iter, Player, ProtocolError, Socket, protocol::*,
 };
 
 mod death_link_options;
@@ -43,7 +43,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     hint_points_per_check: u64,
     hint_points: u64,
     seed_name: String,
-    games: HashMap<OwnedKey<str>, Game>,
+    games: UstrMap<Game>,
     player_index: usize,
     players: Vec<Arc<Player>>,
     slot_data: S,
@@ -161,8 +161,7 @@ impl<S: DeserializeOwned> Client<S> {
                     .get(&p.slot)
                     .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
                     .ok_or_else(|| ProtocolError::MissingSlotInfo(p.slot))?
-                    .game
-                    .clone();
+                    .game;
                 Ok(Player::hydrate(p, game).into())
             })
             .collect::<Result<Vec<Arc<Player>>, Error>>()?;
@@ -185,19 +184,12 @@ impl<S: DeserializeOwned> Client<S> {
         let games = data_package
             .games
             .into_iter()
-            .map(|(name, data)| {
-                (
-                    // Safety: The game will be owned by the game, which
-                    // will live as long as the HashMap.
-                    unsafe { OwnedKey::from_arc(&name) },
-                    Game::hydrate(name, data),
-                )
-            })
-            .collect::<HashMap<_, _>>();
+            .map(|(name, data)| (name, Game::hydrate(name, data)))
+            .collect::<UstrMap<_>>();
         let game = ptr::from_ref(
             games
                 // Safety: This is only used for the duration of the get.
-                .get(&unsafe { OwnedKey::from(&game) })
+                .get(&Ustr::from(&game))
                 .ok_or_else(|| ProtocolError::MissingGameData(game.into()))?,
         );
 
@@ -303,25 +295,23 @@ impl<S: DeserializeOwned> Client<S> {
     /// Returns the game with the given [name], if one is in this multiworld.
     ///
     /// Unlike [games], this will return the special [Game::archipelago] game.
-    pub fn game(&self, name: impl AsRef<str>) -> Option<&Game> {
-        let name = name.as_ref();
+    pub fn game(&self, name: impl Into<Ustr>) -> Option<&Game> {
+        let name = name.into();
         // Safety: We own the name for the duration of the call.
-        self.games
-            .get(&unsafe { OwnedKey::from(name) })
-            .or_else(|| {
-                let archipelago = Game::archipelago();
-                if name == archipelago.name() {
-                    Some(archipelago)
-                } else {
-                    None
-                }
-            })
+        self.games.get(&name).or_else(|| {
+            let archipelago = Game::archipelago();
+            if name == archipelago.name() {
+                Some(archipelago)
+            } else {
+                None
+            }
+        })
     }
 
     /// Returns the game in this multiworld with the given [name]. Panics if
     /// there's no game with that name.
-    pub fn assert_game(&self, name: impl AsRef<str>) -> &Game {
-        let name = name.as_ref();
+    pub fn assert_game(&self, name: impl Into<Ustr>) -> &Game {
+        let name = name.into();
         self.game(name)
             .unwrap_or_else(|| panic!("multiworld doesn't contain a game named \"{}\"", name))
     }

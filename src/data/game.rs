@@ -1,18 +1,19 @@
 use std::sync::{Arc, LazyLock};
 use std::{collections::HashMap, fmt};
 
+use ustr::{Ustr, UstrMap};
+
 use super::{AsItemId, AsLocationId, CHEAT_CONSOLE, Item, Location, SERVER};
-use crate::{Error, Iter, OwnedKey, ProtocolError, protocol::GameData};
+use crate::{Error, Iter, ProtocolError, protocol::GameData};
 
 /// The name of the special Archipelago game that's used for well-known
 /// locations.
-pub(crate) static ARCHIPELAGO_NAME: LazyLock<Arc<String>> =
-    LazyLock::new(|| Arc::new("Archipelago".to_string()));
+pub(crate) static ARCHIPELAGO_NAME: LazyLock<Ustr> = LazyLock::new(|| Ustr::from("Archipelago"));
 
 /// The well-known Archipelago game.
 static ARCHIPELAGO: LazyLock<Game> = LazyLock::new(|| {
     Game::new(
-        ARCHIPELAGO_NAME.clone(),
+        *ARCHIPELAGO_NAME,
         vec![],
         vec![CHEAT_CONSOLE.clone(), SERVER.clone()],
     )
@@ -20,7 +21,7 @@ static ARCHIPELAGO: LazyLock<Game> = LazyLock::new(|| {
 
 /// Information about a single game in an Archipelago multiworld.
 pub struct Game {
-    name: Arc<String>,
+    name: Ustr,
 
     /// All the items in this game.
     items: Vec<Arc<Item>>,
@@ -30,34 +31,29 @@ pub struct Game {
 
     // These map values are indices into [items].
     items_by_id: HashMap<i64, usize>,
-    items_by_name: HashMap<OwnedKey<str>, usize>,
+    items_by_name: UstrMap<usize>,
 
     // These map values are indices into [locations].
     locations_by_id: HashMap<i64, usize>,
-    locations_by_name: HashMap<OwnedKey<str>, usize>,
+    locations_by_name: UstrMap<usize>,
 }
 
 impl Game {
     /// Constructs a [Game] directly from known items and locations.
-    pub(crate) fn new(
-        name: Arc<String>,
-        items: Vec<Arc<Item>>,
-        locations: Vec<Arc<Location>>,
-    ) -> Game {
+    pub(crate) fn new(name: Ustr, items: Vec<Arc<Item>>, locations: Vec<Arc<Location>>) -> Game {
         let mut items_by_id = HashMap::with_capacity(items.len());
-        let mut items_by_name = HashMap::with_capacity(items.len());
+        let mut items_by_name = UstrMap::with_capacity_and_hasher(items.len(), Default::default());
         for (i, item) in items.iter().enumerate() {
             items_by_id.insert(item.id(), i);
-            // Safety: We own the item and this is immutable after creation.
-            items_by_name.insert(unsafe { OwnedKey::from(item.name()) }, i);
+            items_by_name.insert(item.name(), i);
         }
 
         let mut locations_by_id = HashMap::with_capacity(locations.len());
-        let mut locations_by_name = HashMap::with_capacity(locations.len());
+        let mut locations_by_name =
+            UstrMap::with_capacity_and_hasher(locations.len(), Default::default());
         for (i, location) in locations.iter().enumerate() {
             locations_by_id.insert(location.id(), i);
-            // Safety: We own the location and this is immutable after creation.
-            locations_by_name.insert(unsafe { OwnedKey::from(location.name()) }, i);
+            locations_by_name.insert(location.name(), i);
         }
 
         Game {
@@ -72,31 +68,31 @@ impl Game {
     }
 
     /// Converts the raw network-level game struct into a [Game].
-    pub(crate) fn hydrate(name: Arc<String>, network: GameData) -> Game {
+    pub(crate) fn hydrate(name: Ustr, network: GameData) -> Game {
         // TODO: Is it really worth the hassle of supporting indexing by name?
         // Consider dropping that and just storing these as `HashMap<i64,
         // Arc<Item>>`s.
         let mut items = Vec::with_capacity(network.item_name_to_id.len());
         let mut items_by_id = HashMap::with_capacity(network.item_name_to_id.len());
-        let mut items_by_name = HashMap::with_capacity(network.item_name_to_id.len());
+        let mut items_by_name =
+            UstrMap::with_capacity_and_hasher(network.item_name_to_id.len(), Default::default());
         for (item_name, id) in network.item_name_to_id {
             items_by_id.insert(id, items.len());
-            // Safety: We own the item and this is immutable after creation.
-            items_by_name.insert(unsafe { OwnedKey::from_arc(&item_name) }, items.len());
-            items.push(Arc::new(Item::new(id, item_name, name.clone())));
+            items_by_name.insert(item_name, items.len());
+            items.push(Arc::new(Item::new(id, item_name, name)));
         }
 
         let mut locations = Vec::with_capacity(network.location_name_to_id.len());
         let mut locations_by_id = HashMap::with_capacity(network.location_name_to_id.len());
-        let mut locations_by_name = HashMap::with_capacity(network.location_name_to_id.len());
+        let mut locations_by_name = UstrMap::with_capacity_and_hasher(
+            network.location_name_to_id.len(),
+            Default::default(),
+        );
         for (location_name, id) in network.location_name_to_id {
             locations_by_id.insert(id, locations.len());
             // Safety: We own the item and this is immutable after creation.
-            locations_by_name.insert(
-                unsafe { OwnedKey::from_arc(&location_name) },
-                locations.len(),
-            );
-            locations.push(Arc::new(Location::new(id, location_name, name.clone())));
+            locations_by_name.insert(location_name, locations.len());
+            locations.push(Arc::new(Location::new(id, location_name, name)));
         }
 
         Game {
@@ -117,8 +113,8 @@ impl Game {
     }
 
     /// Returns the game's name.
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    pub fn name(&self) -> Ustr {
+        self.name
     }
 
     /// All the items in this game.
@@ -147,7 +143,7 @@ impl Game {
             .ok_or_else(|| {
                 ProtocolError::MissingItem {
                     id,
-                    game: self.name.clone(),
+                    game: self.name,
                 }
                 .into()
             })
@@ -162,17 +158,17 @@ impl Game {
     }
 
     /// Returns the item with the given [name] if one is defined in this game.
-    pub fn item_by_name(&self, name: impl AsRef<str>) -> Option<&Item> {
+    pub fn item_by_name(&self, name: impl Into<Ustr>) -> Option<&Item> {
         self.items_by_name
             // Safety: the key is only used for this call while we own name.
-            .get(&unsafe { OwnedKey::from(name) })
+            .get(&name.into())
             .map(|i| self.items[*i].as_ref())
     }
 
     /// Returns the item with the given [name]. Panics if there's no item with
     /// this name.
-    pub fn assert_item_by_name(&self, name: impl AsRef<str>) -> &Item {
-        let name = name.as_ref();
+    pub fn assert_item_by_name(&self, name: impl Into<Ustr>) -> &Item {
+        let name = name.into();
         self.item_by_name(name)
             .unwrap_or_else(|| panic!("{} doesn't contain an item named \"{}\"", self.name, name))
     }
@@ -193,7 +189,7 @@ impl Game {
             .ok_or_else(|| {
                 ProtocolError::MissingLocation {
                     id,
-                    game: self.name.clone(),
+                    game: self.name,
                 }
                 .into()
             })
@@ -209,17 +205,17 @@ impl Game {
 
     /// Returns the location with the given [name] if one is defined in this
     /// game.
-    pub fn location_by_name(&self, name: impl AsRef<str>) -> Option<&Location> {
+    pub fn location_by_name(&self, name: impl Into<Ustr>) -> Option<&Location> {
         self.locations_by_name
             // Safety: the key is only used for this call while we own name.
-            .get(&unsafe { OwnedKey::from(name) })
+            .get(&name.into())
             .map(|i| self.locations[*i].as_ref())
     }
 
     /// Returns the location with the given [name]. Panics if there's no
     /// location with this name.
-    pub fn assert_location_by_name(&self, name: impl AsRef<str>) -> &Location {
-        let name = name.as_ref();
+    pub fn assert_location_by_name(&self, name: impl Into<Ustr>) -> &Location {
+        let name = name.into();
         self.location_by_name(name).unwrap_or_else(|| {
             panic!(
                 "{} doesn't contain an location named \"{}\"",

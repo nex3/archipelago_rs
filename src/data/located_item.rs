@@ -23,7 +23,7 @@ impl LocatedItem {
         let player = client.teammate_arc(network.player)?;
         let game = client
             .game(player.game())
-            .ok_or_else(|| ProtocolError::MissingGameData(player.game_arc().clone()))?;
+            .ok_or_else(|| ProtocolError::MissingGameData(player.game()))?;
         Ok(LocatedItem {
             item: game.item_arc(network.item)?,
             location: match Location::well_known_arc(network.location) {

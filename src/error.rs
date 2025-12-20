@@ -1,6 +1,5 @@
-use std::sync::Arc;
-
 use thiserror::Error as ThisError;
+use ustr::Ustr;
 
 use crate::protocol::ClientMessage;
 
@@ -160,7 +159,7 @@ pub enum ProtocolError {
 
     /// The data package for the current game wasn't provided by the server.
     #[error("no data package provided for {0}")]
-    MissingGameData(Arc<String>),
+    MissingGameData(Ustr),
 
     /// An item has an ID that doesn't appear in its data package.
     #[error("item {id} is missing {game}'s data package")]
@@ -169,7 +168,7 @@ pub enum ProtocolError {
         id: i64,
 
         /// The name of the game that was expected to have this item ID.
-        game: Arc<String>,
+        game: Ustr,
     },
 
     /// A location has an ID that doesn't appear in its data package.
@@ -179,6 +178,6 @@ pub enum ProtocolError {
         id: i64,
 
         /// The name of the game that was expected to have this location ID.
-        game: Arc<String>,
+        game: Ustr,
     },
 }

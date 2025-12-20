@@ -9,14 +9,12 @@ mod connection_options;
 mod data;
 mod error;
 pub mod protocol;
-mod util;
 
 pub use client::*;
 pub use connection::*;
 pub use connection_options::*;
 pub use data::*;
 pub use error::*;
-pub(crate) use util::*;
 
 /// The trait of iterators returned by this package. This allows us to keep
 /// iterator implementations opaque while still guaranteeing that they implement

@@ -3,14 +3,16 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, LazyLock};
 
+use ustr::Ustr;
+
 use crate::ARCHIPELAGO_NAME;
 
 /// A location in a game where an item may be placed.
 #[derive(Debug, Clone)]
 pub struct Location {
     id: i64,
-    name: Arc<String>,
-    game: Arc<String>,
+    name: Ustr,
+    game: Ustr,
 }
 
 /// The well-known cheat console location. This is stored as an Arc so it can be
@@ -19,7 +21,7 @@ pub(crate) static CHEAT_CONSOLE: LazyLock<Arc<Location>> = LazyLock::new(|| {
     Arc::new(Location {
         id: -1,
         name: "Cheat Console".to_string().into(),
-        game: ARCHIPELAGO_NAME.clone(),
+        game: *ARCHIPELAGO_NAME,
     })
 });
 
@@ -29,13 +31,13 @@ pub(crate) static SERVER: LazyLock<Arc<Location>> = LazyLock::new(|| {
     Arc::new(Location {
         id: -2,
         name: "Server".to_string().into(),
-        game: ARCHIPELAGO_NAME.clone(),
+        game: *ARCHIPELAGO_NAME,
     })
 });
 
 impl Location {
     /// Create a new location.
-    pub(crate) fn new(id: i64, name: Arc<String>, game: Arc<String>) -> Location {
+    pub(crate) fn new(id: i64, name: Ustr, game: Ustr) -> Location {
         Location { id, name, game }
     }
 
@@ -77,13 +79,13 @@ impl Location {
     }
 
     /// This location's name.
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    pub fn name(&self) -> Ustr {
+        self.name
     }
 
     /// This game this location exists in.
-    pub fn game(&self) -> &str {
-        self.game.as_str()
+    pub fn game(&self) -> Ustr {
+        self.game
     }
 }
 

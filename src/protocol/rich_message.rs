@@ -2,6 +2,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 use serde_with::{DisplayFromStr, serde_as};
+use ustr::Ustr;
 
 use crate::protocol::*;
 
@@ -186,7 +187,7 @@ pub enum RichMessagePart {
         /// This field is neither set nor read by the server. It's filled in
         /// based on [id] when [add_name] is called.
         #[serde(skip)]
-        name: Option<Arc<String>>,
+        name: Option<Ustr>,
     },
     PlayerName {
         text: String,
@@ -201,7 +202,7 @@ pub enum RichMessagePart {
         /// This field is neither set nor read by the server. It's filled in
         /// based on [id] and [player] when [add_name] is called.
         #[serde(skip)]
-        name: Option<Arc<String>>,
+        name: Option<Ustr>,
     },
     ItemName {
         text: String,
@@ -217,7 +218,7 @@ pub enum RichMessagePart {
         /// This field is neither set nor read by the server. It's filled in
         /// based on [id] and [player] when [add_name] is called.
         #[serde(skip)]
-        name: Option<Arc<String>>,
+        name: Option<Ustr>,
     },
     LocationName {
         text: String,
@@ -249,11 +250,7 @@ impl RichMessagePart {
     pub fn add_name<S>(&mut self, connected: &Connected<S>, data_package: &DataPackageObject) {
         use RichMessagePart::*;
         match self {
-            PlayerId { id, name } => {
-                if let Some(player) = connected.players.iter().find(|p| p.slot == *id) {
-                    name.replace(player.alias.clone());
-                }
-            }
+            PlayerId { id, name } => todo!(),
             ItemId { .. } => todo!(),
             LocationId { .. } => todo!(),
             _ => {}

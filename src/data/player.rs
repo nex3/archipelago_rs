@@ -1,6 +1,8 @@
 use std::cmp::{Eq, PartialEq};
+use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::{fmt, sync::Arc};
+
+use ustr::Ustr;
 
 use crate::protocol::NetworkPlayer;
 
@@ -9,14 +11,14 @@ use crate::protocol::NetworkPlayer;
 pub struct Player {
     team: u64,
     slot: u64,
-    alias: Arc<String>,
-    name: Arc<String>,
-    game: Arc<String>,
+    alias: String,
+    name: Ustr,
+    game: Ustr,
 }
 
 impl Player {
     /// Converts the raw network-level player struct into a [Player].
-    pub(crate) fn hydrate(network: NetworkPlayer, game: Arc<String>) -> Player {
+    pub(crate) fn hydrate(network: NetworkPlayer, game: Ustr) -> Player {
         Player {
             team: network.team,
             slot: network.slot,
@@ -44,18 +46,13 @@ impl Player {
     }
 
     /// The player's original name at the time the session was generated.
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    pub fn name(&self) -> Ustr {
+        self.name
     }
 
     /// The name of the game this player is playing.
-    pub fn game(&self) -> &str {
-        self.game.as_str()
-    }
-
-    /// Clones the arg for the name of the game this player is playing.
-    pub fn game_arc(&self) -> Arc<String> {
-        self.game.clone()
+    pub fn game(&self) -> Ustr {
+        self.game
     }
 }
 

@@ -1,19 +1,20 @@
 use std::cmp::{Eq, PartialEq};
 use std::fmt;
 use std::hash::{Hash, Hasher};
-use std::sync::Arc;
+
+use ustr::Ustr;
 
 /// An Archipelago item for some player's game.
 #[derive(Debug, Clone)]
 pub struct Item {
     id: i64,
-    name: Arc<String>,
-    game: Arc<String>,
+    name: Ustr,
+    game: Ustr,
 }
 
 impl Item {
     /// Create a new item.
-    pub(crate) fn new(id: i64, name: Arc<String>, game: Arc<String>) -> Item {
+    pub(crate) fn new(id: i64, name: Ustr, game: Ustr) -> Item {
         Item { id, name, game }
     }
 
@@ -23,13 +24,13 @@ impl Item {
     }
 
     /// The item's name.
-    pub fn name(&self) -> &str {
-        self.name.as_str()
+    pub fn name(&self) -> Ustr {
+        self.name
     }
 
     /// This game this item exists in.
-    pub fn game(&self) -> &str {
-        self.game.as_str()
+    pub fn game(&self) -> Ustr {
+        self.game
     }
 }
 

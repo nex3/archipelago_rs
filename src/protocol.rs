@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::{fmt::Display, sync::Arc};
+use std::fmt::Display;
 
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
@@ -7,6 +7,7 @@ use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::DisplayFromStr;
 use serde_with::serde_as;
+use ustr::Ustr;
 
 mod bounce;
 mod rich_message;
@@ -115,8 +116,8 @@ impl Display for NetworkVersion {
 pub(crate) struct NetworkPlayer {
     pub team: u64,
     pub slot: u64,
-    pub alias: Arc<String>,
-    pub name: Arc<String>,
+    pub alias: String,
+    pub name: Ustr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -166,8 +167,8 @@ pub enum SlotType {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkSlot {
-    pub name: Arc<String>,
-    pub game: Arc<String>,
+    pub name: Ustr,
+    pub game: Ustr,
     pub r#type: SlotType,
     pub group_members: Vec<u64>,
 }
@@ -403,13 +404,13 @@ pub struct DataPackage {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DataPackageObject {
-    pub games: HashMap<Arc<String>, GameData>,
+    pub games: HashMap<Ustr, GameData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GameData {
-    pub item_name_to_id: HashMap<Arc<String>, i64>,
-    pub location_name_to_id: HashMap<Arc<String>, i64>,
+    pub item_name_to_id: HashMap<Ustr, i64>,
+    pub location_name_to_id: HashMap<Ustr, i64>,
     pub checksum: String,
 }
 
