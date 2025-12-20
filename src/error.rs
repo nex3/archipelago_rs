@@ -142,6 +142,10 @@ pub enum ProtocolError {
         expected: &'static str,
     },
 
+    /// The `Connected` message included an empty players array.
+    #[error("Connected message includes no players")]
+    EmptyPlayers,
+
     /// The team and slot numbers for a player don't match anything in the
     /// players list.
     #[error("Connected packet was missing player on slot {slot}, team {team}")]

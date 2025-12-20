@@ -164,6 +164,7 @@ impl From<NetworkItemFlags> for u8 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub(crate) enum SlotType {
+    // We ignore these because they aren't currently sent by the server.
     Spectator = 0,
     Player = 1,
     Group = 2,
@@ -176,15 +177,6 @@ pub struct NetworkSlot {
     pub(crate) game: Ustr,
     pub(crate) r#type: SlotType,
     pub(crate) group_members: Vec<u64>,
-}
-
-pub(crate) fn network_version() -> NetworkVersion {
-    NetworkVersion {
-        major: 0,
-        minor: 6,
-        build: 0,
-        class: "Version".to_string(),
-    }
 }
 
 // REQUESTS

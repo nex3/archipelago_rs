@@ -5,8 +5,8 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Game, Iter, Player, Print, ProtocolError, Socket,
-    protocol::*,
+    AsLocationId, ConnectionOptions, Error, Game, Group, Iter, Player, Print, ProtocolError,
+    Socket, protocol::*,
 };
 
 mod death_link_options;
@@ -48,8 +48,10 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     player_index: usize,
     players: Vec<Arc<Player>>,
     slot_data: S,
-    spectators: Vec<NetworkSlot>,
     groups: Vec<NetworkSlot>,
+
+    /// The number of teams in this multiworld. Also the maximum team ID.
+    teams: u64,
 
     /// A map from location IDs for this game to booleans indicating whether or
     /// not they've been checked.
@@ -143,16 +145,26 @@ impl<S: DeserializeOwned> Client<S> {
         let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
         let points_per_hint = (total_locations as u64) * u64::from(room_info.hint_cost) / 100;
 
-        let spectators = connected
-            .slot_info
-            .extract_if(|_, slot| slot.r#type == SlotType::Spectator)
-            .map(|(_, slot)| slot)
-            .collect();
+        let teams = connected
+            .players
+            .iter()
+            .map(|p| p.team)
+            .max()
+            .ok_or_else(|| ProtocolError::EmptyPlayers)?;
+
         let groups = connected
             .slot_info
             .extract_if(|_, slot| slot.r#type == SlotType::Group)
             .map(|(_, slot)| slot)
             .collect::<Vec<_>>();
+        for group in &groups {
+            for member in &group.group_members {
+                if !connected.slot_info.contains_key(&member) {
+                    return Err(ProtocolError::MissingSlotInfo(*member).into());
+                }
+            }
+        }
+
         let players = connected
             .players
             .into_iter()
@@ -210,8 +222,8 @@ impl<S: DeserializeOwned> Client<S> {
             player_index,
             players,
             slot_data: connected.slot_data,
-            spectators,
             groups,
+            teams,
             local_locations_checked,
         })
     }
@@ -389,6 +401,21 @@ impl<S: DeserializeOwned> Client<S> {
         self.assert_player(self.this_player().team(), slot)
     }
 
+    /// The groups on the given [team], if such a team exists.
+    pub fn groups(&self, team: u64) -> Option<impl Iter<Group>> {
+        if team > self.teams {
+            return None;
+        } else {
+            Some(self.groups.iter().map(move |g| Group::new(g, team, self)))
+        }
+    }
+
+    /// The groups on the current player's.
+    pub fn teammate_groups(&self) -> impl Iter<Group> {
+        let team = self.this_player().team();
+        self.groups.iter().map(move |g| Group::new(g, team, self))
+    }
+
     /// Returns whether the local location with the given ID has been checked
     /// (either by us or by other players doing co-op).
     ///
@@ -409,22 +436,6 @@ impl<S: DeserializeOwned> Client<S> {
     /// Returns the slot data provided by the apworld.
     pub fn slot_data(&self) -> &S {
         &self.slot_data
-    }
-
-    // TODO: Make this return custom structs.
-    /// Information about clients that are observing the multiworld without
-    /// participating.
-    ///
-    /// Note: at time of writing, spectator support is not actually implemented
-    /// by the Archipelago server.
-    pub fn spectators(&self) -> &[NetworkSlot] {
-        self.spectators.as_slice()
-    }
-
-    // TODO: Make this return custom structs that contain player references.
-    /// Information about groups of players.
-    pub fn groups(&self) -> &[NetworkSlot] {
-        self.groups.as_slice()
     }
 
     // == Event handling
