@@ -189,7 +189,7 @@ impl<S: DeserializeOwned> Socket<S> {
                     debug!("<-- {text}");
                     text.into()
                 }
-                Err(error) => return Err(Error::Serialize { message, error }),
+                Err(error) => return Err(Error::Serialize(error)),
             }))?;
         self.inner.flush()?;
         Ok(())

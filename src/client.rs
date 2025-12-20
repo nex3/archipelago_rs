@@ -5,7 +5,8 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Game, Iter, Player, ProtocolError, Socket, protocol::*,
+    AsLocationId, ConnectionOptions, Error, Game, Iter, Player, Print, ProtocolError, Socket,
+    protocol::*,
 };
 
 mod death_link_options;
@@ -316,6 +317,14 @@ impl<S: DeserializeOwned> Client<S> {
             .unwrap_or_else(|| panic!("multiworld doesn't contain a game named \"{}\"", name))
     }
 
+    /// Returns the game in this multiworld with the given [name]. Returns an
+    /// error if there's no game with that name.
+    pub(crate) fn game_or_err(&self, name: impl Into<Ustr>) -> Result<&Game, Error> {
+        let name = name.into();
+        self.game(name)
+            .ok_or_else(|| ProtocolError::MissingGameData(name).into())
+    }
+
     /// The player that's currently connected to the multiworld.
     pub fn this_player(&self) -> &Player {
         self.players[self.player_index].as_ref()
@@ -428,20 +437,30 @@ impl<S: DeserializeOwned> Client<S> {
     /// Typically a caller that's integrated Archipelago into a game loop will
     /// call this once each frame.
     ///
+    /// Most errors are fatal, and if emitted mean that the client will not emit
+    /// any more events and should be discarded and reconnected. Some
+    /// (specifically [Error::ProtocolError]s) are recoverable, though, and the
+    /// client will continue to emit additional events after they're emitted if
+    /// it's not dropped. You can detect which errors are fatal using
+    /// [Error.is_fatal].
+    ///
     /// Unless this is called (or [Connection.update], which calls this), the
     /// client will never change state.
     pub fn update(&mut self) -> Vec<Event> {
         let mut events = Vec::<Event>::new();
         loop {
             match self.socket.try_recv() {
-                Ok(Some(_event)) => {
-                    // TODO: dispatch events
+                Ok(Some(ServerMessage::RawPrint(print))) => match Print::new(print, self) {
+                    Ok(print) => events.push(Event::Print(print)),
+                    Err(err) => events.push(Event::Error(err)),
+                },
+                Ok(Some(ServerMessage::PlainPrint(PlainPrint { text }))) => {
+                    events.push(Event::Print(Print::message(text)))
                 }
+                // TODO: dispatch all events
+                Ok(Some(_)) => todo!(),
                 Ok(None) => return events,
-                Err(err) => {
-                    events.push(Event::Error(err));
-                    return events;
-                }
+                Err(err) => events.push(Event::Error(err)),
             }
         }
     }
@@ -462,6 +481,9 @@ pub enum Event {
     /// The client has established a successful connection. This is only emitted
     /// from [Connection.update] and only once, always as the first event.
     Connected,
+
+    /// A message for the client to display to the player.
+    Print(Print),
 
     /// The client has encountered an error.
     ///

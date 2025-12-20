@@ -26,6 +26,7 @@ impl ConnectionOptions {
         self
     }
 
+    // TODO: Make a cleaner enum for ItemsHandlingFlags
     /// Sets which items to receive. By default, you'll receive items from other
     /// worlds and your starting inventory, but not items from your own world.
     pub fn receive_items(mut self, items: ItemsHandlingFlags) -> Self {

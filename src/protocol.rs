@@ -10,14 +10,15 @@ use serde_with::serde_as;
 use ustr::Ustr;
 
 mod bounce;
-mod rich_message;
+mod print;
 
-pub use bounce::*;
-pub use rich_message::*;
+pub(crate) use bounce::*;
+pub use print::TextColor;
+pub(crate) use print::*;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "cmd")]
-pub enum ClientMessage {
+pub(crate) enum ClientMessage {
     Connect(Connect),
     ConnectUpdate(ConnectUpdate),
     Sync,
@@ -35,16 +36,17 @@ pub enum ClientMessage {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "cmd")]
-pub enum ServerMessage<S> {
+pub(crate) enum ServerMessage<S> {
     RoomInfo(RoomInfo),
     ConnectionRefused(ConnectionRefused),
     Connected(Connected<S>),
     ReceivedItems(ReceivedItems),
     LocationInfo(LocationInfo),
     RoomUpdate(RoomUpdate),
-    Print(Print),
+    #[serde(rename = "Print")]
+    PlainPrint(PlainPrint),
     #[serde(rename = "PrintJSON")]
-    RichPrint(RichPrint),
+    RawPrint(NetworkPrint),
     DataPackage(DataPackage),
     Bounced(Bounced),
     InvalidPacket(InvalidPacket),
@@ -54,7 +56,7 @@ pub enum ServerMessage<S> {
 
 impl<S> ServerMessage<S> {
     /// Returns the name of this message's type.
-    pub fn type_name(&self) -> &'static str {
+    pub(crate) fn type_name(&self) -> &'static str {
         use ServerMessage::*;
         match self {
             RoomInfo(_) => "RoomInfo",
@@ -63,8 +65,8 @@ impl<S> ServerMessage<S> {
             ReceivedItems(_) => "ReceivedItems",
             LocationInfo(_) => "LocationInfo",
             RoomUpdate(_) => "RoomUpdate",
-            Print(_) => "Print",
-            RichPrint(_) => "PrintJSON",
+            PlainPrint(_) => "Print",
+            RawPrint(_) => "PrintJSON",
             DataPackage(_) => "DataPackage",
             Bounced(_) => "Bounced",
             InvalidPacket(_) => "InvalidPacket",
@@ -98,11 +100,12 @@ pub enum Permission {
     AutoEnabled = 7,
 }
 
+// TODO: Make a public-facing version of this.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkVersion {
-    pub major: u64,
-    pub minor: u64,
-    pub build: u64,
+    pub(crate) major: u64,
+    pub(crate) minor: u64,
+    pub(crate) build: u64,
     pub(crate) class: String,
 }
 
@@ -114,20 +117,21 @@ impl Display for NetworkVersion {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct NetworkPlayer {
-    pub team: u64,
-    pub slot: u64,
-    pub alias: String,
-    pub name: Ustr,
+    pub(crate) team: u64,
+    pub(crate) slot: u64,
+    pub(crate) alias: String,
+    pub(crate) name: Ustr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkItem {
-    pub item: i64,
-    pub location: i64,
-    pub player: u64,
-    pub flags: NetworkItemFlags,
+pub(crate) struct NetworkItem {
+    pub(crate) item: i64,
+    pub(crate) location: i64,
+    pub(crate) player: u64,
+    pub(crate) flags: NetworkItemFlags,
 }
 
+// TODO: Make a public-facing version of this.
 bitflags! {
     #[repr(transparent)]
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -159,21 +163,22 @@ impl From<NetworkItemFlags> for u8 {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
-pub enum SlotType {
+pub(crate) enum SlotType {
     Spectator = 0,
     Player = 1,
     Group = 2,
 }
 
+// TODO: Make a public-facing version of this for more than just players
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NetworkSlot {
-    pub name: Ustr,
-    pub game: Ustr,
-    pub r#type: SlotType,
-    pub group_members: Vec<u64>,
+    pub(crate) name: Ustr,
+    pub(crate) game: Ustr,
+    pub(crate) r#type: SlotType,
+    pub(crate) group_members: Vec<u64>,
 }
 
-pub fn network_version() -> NetworkVersion {
+pub(crate) fn network_version() -> NetworkVersion {
     NetworkVersion {
         major: 0,
         minor: 6,
@@ -185,21 +190,21 @@ pub fn network_version() -> NetworkVersion {
 // REQUESTS
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Connect {
-    pub password: Option<String>,
-    pub game: String,
-    pub name: String,
-    pub uuid: String,
-    pub version: NetworkVersion,
-    pub items_handling: u8,
-    pub tags: Vec<String>,
-    pub slot_data: bool,
+pub(crate) struct Connect {
+    pub(crate) password: Option<String>,
+    pub(crate) game: String,
+    pub(crate) name: String,
+    pub(crate) uuid: String,
+    pub(crate) version: NetworkVersion,
+    pub(crate) items_handling: u8,
+    pub(crate) tags: Vec<String>,
+    pub(crate) slot_data: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectUpdate {
-    pub items_handling: u8,
-    pub tags: Vec<String>,
+pub(crate) struct ConnectUpdate {
+    pub(crate) items_handling: u8,
+    pub(crate) tags: Vec<String>,
 }
 
 bitflags! {
@@ -219,26 +224,26 @@ bitflags! {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationChecks {
-    pub locations: Vec<i64>,
+pub(crate) struct LocationChecks {
+    pub(crate) locations: Vec<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationScouts {
-    pub locations: Vec<i64>,
-    pub create_as_hint: u8,
+pub(crate) struct LocationScouts {
+    pub(crate) locations: Vec<i64>,
+    pub(crate) create_as_hint: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateHint {
-    pub player: u64,
-    pub location: i64,
-    pub status: HintStatus,
+pub(crate) struct UpdateHint {
+    pub(crate) player: u64,
+    pub(crate) location: i64,
+    pub(crate) status: HintStatus,
 }
 
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(u16)]
-pub enum HintStatus {
+pub(crate) enum HintStatus {
     HintFound = 0,
     HintUnspecified = 1,
     HintNoPriority = 10,
@@ -247,13 +252,13 @@ pub enum HintStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusUpdate {
-    pub status: ClientStatus,
+pub(crate) struct StatusUpdate {
+    pub(crate) status: ClientStatus,
 }
 
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
 #[repr(u16)]
-pub enum ClientStatus {
+pub(crate) enum ClientStatus {
     ClientUnknown = 0,
     ClientReady = 10,
     ClientPlaying = 20,
@@ -261,33 +266,33 @@ pub enum ClientStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Say {
-    pub text: String,
+pub(crate) struct Say {
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetDataPackage {
+pub(crate) struct GetDataPackage {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub games: Option<Vec<String>>,
+    pub(crate) games: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Get {
-    pub keys: Vec<String>,
+pub(crate) struct Get {
+    pub(crate) keys: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Set {
-    pub key: String,
-    pub default: Value,
-    pub want_reply: bool,
-    pub operations: Vec<DataStorageOperation>,
+pub(crate) struct Set {
+    pub(crate) key: String,
+    pub(crate) default: Value,
+    pub(crate) want_reply: bool,
+    pub(crate) operations: Vec<DataStorageOperation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "value", rename_all = "snake_case")]
-pub enum DataStorageOperation {
+pub(crate) enum DataStorageOperation {
     Replace(Value),
     Default,
     Add(Value),
@@ -309,126 +314,121 @@ pub enum DataStorageOperation {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetNotify {
-    pub keys: Vec<String>,
+pub(crate) struct SetNotify {
+    pub(crate) keys: Vec<String>,
 }
 
 // RESPONSES
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RoomInfo {
-    pub version: NetworkVersion,
-    pub generator_version: NetworkVersion,
-    pub tags: HashSet<String>,
+    pub(crate) version: NetworkVersion,
+    pub(crate) generator_version: NetworkVersion,
+    pub(crate) tags: HashSet<String>,
     #[serde(rename = "password")]
-    pub password_required: bool,
-    pub permissions: PermissionMap,
-    pub hint_cost: u8,
-    pub location_check_points: u64,
-    pub games: HashSet<String>,
+    pub(crate) password_required: bool,
+    pub(crate) permissions: PermissionMap,
+    pub(crate) hint_cost: u8,
+    pub(crate) location_check_points: u64,
+    pub(crate) games: HashSet<String>,
     #[serde(default)]
-    pub datapackage_checksums: HashMap<String, String>,
-    pub seed_name: String,
-    pub time: f64,
+    pub(crate) datapackage_checksums: HashMap<String, String>,
+    pub(crate) seed_name: String,
+    pub(crate) time: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct PermissionMap {
-    pub release: Permission,
-    pub collect: Permission,
-    pub remaining: Permission,
+    pub(crate) release: Permission,
+    pub(crate) collect: Permission,
+    pub(crate) remaining: Permission,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectionRefused {
+pub(crate) struct ConnectionRefused {
     #[serde(default)]
-    pub errors: Vec<String>,
+    pub(crate) errors: Vec<String>,
 }
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
-pub struct Connected<S> {
-    pub team: u64,
-    pub slot: u64,
-    pub players: Vec<NetworkPlayer>,
-    pub missing_locations: Vec<i64>,
-    pub checked_locations: Vec<i64>,
-    pub slot_data: S,
+pub(crate) struct Connected<S> {
+    pub(crate) team: u64,
+    pub(crate) slot: u64,
+    pub(crate) players: Vec<NetworkPlayer>,
+    pub(crate) missing_locations: Vec<i64>,
+    pub(crate) checked_locations: Vec<i64>,
+    pub(crate) slot_data: S,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
-    pub slot_info: HashMap<u64, NetworkSlot>,
-    pub hint_points: u64,
+    pub(crate) slot_info: HashMap<u64, NetworkSlot>,
+    pub(crate) hint_points: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReceivedItems {
-    pub index: i64,
-    pub items: Vec<NetworkItem>,
+pub(crate) struct ReceivedItems {
+    pub(crate) index: i64,
+    pub(crate) items: Vec<NetworkItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationInfo {
-    pub locations: Vec<NetworkItem>,
+pub(crate) struct LocationInfo {
+    pub(crate) locations: Vec<NetworkItem>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RoomUpdate {
+pub(crate) struct RoomUpdate {
     // Copied from RoomInfo
-    pub version: Option<NetworkVersion>,
-    pub tags: Option<Vec<String>>,
+    pub(crate) version: Option<NetworkVersion>,
+    pub(crate) tags: Option<Vec<String>>,
     #[serde(rename = "password")]
-    pub password_required: Option<bool>,
-    pub permissions: Option<PermissionMap>,
-    pub hint_cost: Option<i64>,
-    pub location_check_points: Option<i64>,
-    pub games: Option<Vec<String>>,
-    pub datapackage_versions: Option<HashMap<String, i64>>,
-    pub datapackage_checksums: Option<HashMap<String, String>>,
-    pub seed_name: Option<String>,
-    pub time: Option<f64>,
+    pub(crate) password_required: Option<bool>,
+    pub(crate) permissions: Option<PermissionMap>,
+    pub(crate) hint_cost: Option<i64>,
+    pub(crate) location_check_points: Option<i64>,
+    pub(crate) games: Option<Vec<String>>,
+    pub(crate) datapackage_versions: Option<HashMap<String, i64>>,
+    pub(crate) datapackage_checksums: Option<HashMap<String, String>>,
+    pub(crate) seed_name: Option<String>,
+    pub(crate) time: Option<f64>,
     // Exclusive to RoomUpdate
-    pub hint_points: Option<i64>,
-    pub players: Option<Vec<NetworkPlayer>>,
-    pub checked_locations: Option<Vec<i64>>,
-    pub missing_locations: Option<Vec<i64>>,
+    pub(crate) hint_points: Option<i64>,
+    pub(crate) players: Option<Vec<NetworkPlayer>>,
+    pub(crate) checked_locations: Option<Vec<i64>>,
+    pub(crate) missing_locations: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Print {
-    pub text: String,
+pub(crate) struct DataPackage {
+    pub(crate) data: DataPackageObject,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataPackage {
-    pub data: DataPackageObject,
+pub(crate) struct DataPackageObject {
+    pub(crate) games: HashMap<Ustr, GameData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataPackageObject {
-    pub games: HashMap<Ustr, GameData>,
+pub(crate) struct GameData {
+    pub(crate) item_name_to_id: HashMap<Ustr, i64>,
+    pub(crate) location_name_to_id: HashMap<Ustr, i64>,
+    pub(crate) checksum: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GameData {
-    pub item_name_to_id: HashMap<Ustr, i64>,
-    pub location_name_to_id: HashMap<Ustr, i64>,
-    pub checksum: String,
+pub(crate) struct InvalidPacket {
+    pub(crate) r#type: String,
+    pub(crate) original_cmd: Option<String>,
+    pub(crate) text: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InvalidPacket {
-    pub r#type: String,
-    pub original_cmd: Option<String>,
-    pub text: String,
+pub(crate) struct Retrieved {
+    pub(crate) keys: Value,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Retrieved {
-    pub keys: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetReply {
-    pub key: String,
-    pub value: Value,
-    pub original_value: Option<Value>, // Won't be there if key is prefixed with _read
+pub(crate) struct SetReply {
+    pub(crate) key: String,
+    pub(crate) value: Value,
+    pub(crate) original_value: Option<Value>, // Won't be there if key is prefixed with _read
 }

@@ -62,9 +62,14 @@ impl<S: DeserializeOwned + 'static> Connection<S> {
     /// call this once each frame.
     ///
     /// This returns any events that were received from the server since the
-    /// last time this was called. If the connection encounters an error,
+    /// last time this was called. If the connection encounters a fatal error,
     /// [Event::Error] will be [Error::Elsewhere] and the actual error will be
     /// available from [state] or [into_err].
+    ///
+    /// Most errors are fatal, but some (specifically [Error::ProtocolError]s)
+    /// are recoverable. If the connection encounters a recoverable error, it
+    /// will remain in [ConnectionState::Connected] and continue emitting events
+    /// afterwards.
     pub fn update(&mut self) -> Vec<Event> {
         match self.state {
             ConnectionState::Connecting(Connecting(ref mut future)) => match try_future(future) {
@@ -86,7 +91,9 @@ impl<S: DeserializeOwned + 'static> Connection<S> {
             },
             ConnectionState::Connected(ref mut client) => {
                 let mut events = client.update();
-                if let Some(Event::Error(error)) = events.pop_if(|e| matches!(e, Event::Error(_))) {
+                if let Some(Event::Error(error)) =
+                    events.pop_if(|e| matches!(e, Event::Error(err) if err.is_fatal()))
+                {
                     self.state = ConnectionState::Disconnected(error);
                     events.push(Event::Error(Error::Elsewhere));
                 }

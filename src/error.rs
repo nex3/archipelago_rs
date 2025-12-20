@@ -1,8 +1,6 @@
 use thiserror::Error as ThisError;
 use ustr::Ustr;
 
-use crate::protocol::ClientMessage;
-
 /// The enumeration of all possible errors that can occur in an Archipelago
 /// connection.
 #[derive(ThisError, Debug)]
@@ -31,14 +29,8 @@ pub enum Error {
     ConnectionInterrupted,
 
     /// The Archipelago client provided a message that couldn't be serialized.
-    #[error("failed to serialize client message: {error}\n{message:?}")]
-    Serialize {
-        /// The unencoded message that failed to serialize.
-        message: ClientMessage,
-
-        /// The serialization error.
-        error: serde_json::Error,
-    },
+    #[error("failed to serialize client message: {0}")]
+    Serialize(serde_json::Error),
 
     /// The Archipelago server violated the network protocol (as the client
     /// understands it).
@@ -57,6 +49,14 @@ pub enum Error {
     /// stored in [Connection::state].
     #[error("a full error is available elsewhere")]
     Elsewhere,
+}
+
+impl Error {
+    /// Returns whether this is a fatal error that indicates that the
+    /// Archipelago connection is closed after it's emitted.
+    pub fn is_fatal(&self) -> bool {
+        !matches!(self, Error::ProtocolError(_))
+    }
 }
 
 /// Possible individual errors that can cause an initial Archipelago connection
