@@ -18,36 +18,36 @@ pub(crate) struct PlainPrint {
 pub(crate) enum NetworkPrint {
     ItemSend {
         data: Vec<NetworkText>,
-        receiving: u64,
+        receiving: u32,
         item: NetworkItem,
     },
     ItemCheat {
         data: Vec<NetworkText>,
-        receiving: u64,
+        receiving: u32,
         item: NetworkItem,
-        team: u64,
+        team: u32,
     },
     Hint {
         data: Vec<NetworkText>,
-        receiving: u64,
+        receiving: u32,
         item: NetworkItem,
         found: bool,
     },
     Join {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
         tags: Vec<String>,
     },
     Part {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
     },
     Chat {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
         message: String,
     },
     ServerChat {
@@ -59,8 +59,8 @@ pub(crate) enum NetworkPrint {
     },
     TagsChanged {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
         tags: Vec<String>,
     },
     CommandResult {
@@ -71,18 +71,18 @@ pub(crate) enum NetworkPrint {
     },
     Goal {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
     },
     Release {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
     },
     Collect {
         data: Vec<NetworkText>,
-        team: u64,
-        slot: u64,
+        team: u32,
+        slot: u32,
     },
     Countdown {
         data: Vec<NetworkText>,
@@ -141,7 +141,7 @@ pub(crate) enum NetworkText {
         /// The slot ID of the player this part refers to.
         #[serde(rename = "text")]
         #[serde_as(as = "DisplayFromStr")]
-        id: u64,
+        id: u32,
     },
     PlayerName {
         text: String,
@@ -150,14 +150,14 @@ pub(crate) enum NetworkText {
         #[serde(rename = "text")]
         #[serde_as(as = "DisplayFromStr")]
         id: i64,
-        player: u64,
+        player: u32,
         flags: NetworkItemFlags,
     },
     LocationId {
         #[serde(rename = "text")]
         #[serde_as(as = "DisplayFromStr")]
         id: i64,
-        player: u64,
+        player: u32,
     },
     EntranceName {
         text: String,

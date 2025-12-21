@@ -116,8 +116,8 @@ impl Display for NetworkVersion {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct NetworkPlayer {
-    pub(crate) team: u64,
-    pub(crate) slot: u64,
+    pub(crate) team: u32,
+    pub(crate) slot: u32,
     pub(crate) alias: String,
     pub(crate) name: Ustr,
 }
@@ -126,7 +126,7 @@ pub(crate) struct NetworkPlayer {
 pub(crate) struct NetworkItem {
     pub(crate) item: i64,
     pub(crate) location: i64,
-    pub(crate) player: u64,
+    pub(crate) player: u32,
     pub(crate) flags: NetworkItemFlags,
 }
 
@@ -173,7 +173,7 @@ pub(crate) struct NetworkSlot {
     pub(crate) name: Ustr,
     pub(crate) game: Ustr,
     pub(crate) r#type: SlotType,
-    pub(crate) group_members: Vec<u64>,
+    pub(crate) group_members: Vec<u32>,
 }
 
 // REQUESTS
@@ -342,14 +342,14 @@ pub(crate) struct ConnectionRefused {
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Connected<S> {
-    pub(crate) team: u64,
-    pub(crate) slot: u64,
+    pub(crate) team: u32,
+    pub(crate) slot: u32,
     pub(crate) players: Vec<NetworkPlayer>,
     pub(crate) missing_locations: Vec<i64>,
     pub(crate) checked_locations: Vec<i64>,
     pub(crate) slot_data: S,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
-    pub(crate) slot_info: HashMap<u64, NetworkSlot>,
+    pub(crate) slot_info: HashMap<u32, NetworkSlot>,
     pub(crate) hint_points: u64,
 }
 

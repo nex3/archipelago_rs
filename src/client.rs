@@ -49,13 +49,13 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     groups: Vec<NetworkSlot>,
 
     /// A map from `(team, slot)` to the player with that team and slot.
-    players: HashMap<(u64, u64), Arc<Player>>,
+    players: HashMap<(u32, u32), Arc<Player>>,
 
     /// The key for the current player in [players].
-    player_key: (u64, u64),
+    player_key: (u32, u32),
 
     /// The number of teams in this multiworld. Also the maximum team ID.
-    teams: u64,
+    teams: u32,
 
     /// A map from location IDs for this game to booleans indicating whether or
     /// not they've been checked.
@@ -181,7 +181,7 @@ impl<S: DeserializeOwned> Client<S> {
                 let player = Player::hydrate(p, game);
                 Ok(((player.team(), player.slot()), player.into()))
             })
-            .collect::<Result<HashMap<(u64, u64), Arc<Player>>, Error>>()?;
+            .collect::<Result<HashMap<(u32, u32), Arc<Player>>, Error>>()?;
         let player_key = (connected.team, connected.slot);
         if !players.contains_key(&player_key) {
             return Err(ProtocolError::MissingPlayer {
@@ -356,13 +356,13 @@ impl<S: DeserializeOwned> Client<S> {
     /// The player on the given [team] playing the given [slot], if one exists.
     ///
     /// See also [teammate] to only check the current player's team.
-    pub fn player(&self, team: u64, slot: u64) -> Option<&Player> {
+    pub fn player(&self, team: u32, slot: u32) -> Option<&Player> {
         self.players.get(&(team, slot)).map(|p| p.as_ref())
     }
 
     /// CLones the Arc for the player on the given [team] playing the given
     /// [slot].
-    pub fn player_arc(&self, team: u64, slot: u64) -> Result<Arc<Player>, Error> {
+    pub fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
         self.players
             .get(&(team, slot))
             .map(|p| p.clone())
@@ -373,7 +373,7 @@ impl<S: DeserializeOwned> Client<S> {
     /// player doesn't exist.
     ///
     /// See also [assert_teammate] to only check the current player's team.
-    pub fn assert_player(&self, team: u64, slot: u64) -> &Player {
+    pub fn assert_player(&self, team: u32, slot: u32) -> &Player {
         self.player(team, slot).unwrap_or_else(|| {
             if self.players.keys().any(|k| k.0 == team) {
                 panic!("no player with slot {}", slot);
@@ -385,13 +385,13 @@ impl<S: DeserializeOwned> Client<S> {
 
     /// The player playing the given [slot] on the current player's team, if one
     /// exists.
-    pub fn teammate(&self, slot: u64) -> Option<&Player> {
+    pub fn teammate(&self, slot: u32) -> Option<&Player> {
         self.player(self.player_key.0, slot)
     }
 
     /// A clone of the [Arc] for the player playing the given [slot] on the
     /// current player's team.
-    pub(crate) fn teammate_arc(&self, slot: u64) -> Result<Arc<Player>, Error> {
+    pub(crate) fn teammate_arc(&self, slot: u32) -> Result<Arc<Player>, Error> {
         self.player_arc(self.player_key.0, slot)
     }
 
@@ -399,12 +399,12 @@ impl<S: DeserializeOwned> Client<S> {
     /// if this player doesn't exist.
     ///
     /// See also [assert_teammate] to only check the current player's team.
-    pub fn assert_teammate(&self, slot: u64) -> &Player {
+    pub fn assert_teammate(&self, slot: u32) -> &Player {
         self.assert_player(self.player_key.0, slot)
     }
 
     /// The groups on the given [team], if such a team exists.
-    pub fn groups(&self, team: u64) -> Option<impl Iter<Group>> {
+    pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
         if team > self.teams {
             return None;
         } else {

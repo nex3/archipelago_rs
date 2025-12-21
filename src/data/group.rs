@@ -22,7 +22,7 @@ impl Group {
     /// client struct.
     pub(crate) fn new<S: DeserializeOwned>(
         network: &NetworkSlot,
-        team: u64,
+        team: u32,
         client: &Client<S>,
     ) -> Self {
         assert!(network.r#type == SlotType::Group);

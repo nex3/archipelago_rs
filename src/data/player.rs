@@ -9,8 +9,8 @@ use crate::protocol::NetworkPlayer;
 /// A single player (that is, slot) in the multiworld.
 #[derive(Debug, Clone)]
 pub struct Player {
-    team: u64,
-    slot: u64,
+    team: u32,
+    slot: u32,
     alias: String,
     name: Ustr,
     game: Ustr,
@@ -30,13 +30,13 @@ impl Player {
 
     /// The player's team number. For multiworlds without teams, this will
     /// always be 0.
-    pub fn team(&self) -> u64 {
+    pub fn team(&self) -> u32 {
         self.team
     }
 
     /// The player's slot number. Slot 0 refers to the Archipelago server, and
     /// normal players begin counting from 1.
-    pub fn slot(&self) -> u64 {
+    pub fn slot(&self) -> u32 {
         self.slot
     }
 

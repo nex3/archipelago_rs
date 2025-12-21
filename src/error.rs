@@ -151,15 +151,15 @@ pub enum ProtocolError {
     #[error("Connected packet was missing player on slot {slot}, team {team}")]
     MissingPlayer {
         /// The current player's team number.
-        team: u64,
+        team: u32,
 
         /// The current player's slot number.
-        slot: u64,
+        slot: u32,
     },
 
     /// A player has a slot number that doesn't appear in `Connected.slot_info`.
     #[error("slot {0} is missing from Connected.slot_info")]
-    MissingSlotInfo(u64),
+    MissingSlotInfo(u32),
 
     /// The data package for the current game wasn't provided by the server.
     #[error("no data package provided for {0}")]
