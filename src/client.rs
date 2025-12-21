@@ -5,8 +5,8 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Event, Game, Group, Iter, Player, Print, ProtocolError,
-    Socket, UpdatedField, Version, protocol::*,
+    AsLocationId, ConnectionOptions, Error, Event, Game, Group, Iter, Location, Player, Print,
+    ProtocolError, Socket, UnsizedIter, UpdatedField, Version, protocol::*,
 };
 
 mod death_link_options;
@@ -433,6 +433,24 @@ impl<S: DeserializeOwned> Client<S> {
                 self.this_game().name()
             )
         })
+    }
+
+    /// Returns all the locations that the player has already checked.
+    pub fn checked_locations(&self) -> impl UnsizedIter<Location> {
+        let game = self.this_game();
+        self.local_locations_checked
+            .iter()
+            .filter(|(_, checked)| **checked)
+            .map(|(id, _)| game.assert_location(*id))
+    }
+
+    /// Returns all the locations that the player has not yet checked.
+    pub fn unchecked_locations(&self) -> impl UnsizedIter<Location> {
+        let game = self.this_game();
+        self.local_locations_checked
+            .iter()
+            .filter(|(_, checked)| !**checked)
+            .map(|(id, _)| game.assert_location(*id))
     }
 
     /// Returns the slot data provided by the apworld.
