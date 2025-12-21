@@ -3,45 +3,54 @@ use std::{fmt, sync::Arc};
 use serde::de::DeserializeOwned;
 
 use crate::protocol::{NetworkItem, NetworkItemFlags};
-use crate::{Client, Error, Game, Item, Location, Player, ProtocolError};
+use crate::{Client, Error, Game, Item, Location, Player};
 
 /// An item associated with a particular location in particular player's world.
 #[derive(Clone)]
 pub struct LocatedItem {
     item: Item,
     location: Location,
-    player: Arc<Player>,
+    sender: Arc<Player>,
+    receiver: Arc<Player>,
     flags: NetworkItemFlags,
 }
 
 impl LocatedItem {
     /// Creates a fully-hydrated [LocatedItem] from a [NetworkItem].
+    ///
+    /// Because a [NetworkItem] alone doesn't provide full context on who the
+    /// sender or receiver is, this requires them to be passed in explicitly.
     pub(crate) fn hydrate<S: DeserializeOwned>(
         network: NetworkItem,
+        sender: Arc<Player>,
+        receiver: Arc<Player>,
         client: &Client<S>,
     ) -> Result<LocatedItem, Error> {
-        let player = client.teammate_arc(network.player)?;
-        let game = client
-            .game(player.game())
-            .ok_or_else(|| ProtocolError::MissingGameData(player.game()))?;
-        LocatedItem::hydrate_with_player_and_game(network, player, game)
+        let sender_game = client.game_or_err(sender.game())?;
+        let receiver_game = client.game_or_err(receiver.game())?;
+        LocatedItem::hydrate_with_games(network, sender, receiver, sender_game, receiver_game)
     }
 
-    /// Creates a fully-hydrated [LocatedItem] from an existing [player] and [game].
-    pub(crate) fn hydrate_with_player_and_game(
+    /// Creates a fully-hydrated [LocatedItem] from an already-loaded
+    /// [sender_game] and [receiver_game].
+    pub(crate) fn hydrate_with_games(
         network: NetworkItem,
-        player: Arc<Player>,
-        game: &Game,
+        sender: Arc<Player>,
+        receiver: Arc<Player>,
+        sender_game: &Game,
+        receiver_game: &Game,
     ) -> Result<LocatedItem, Error> {
-        debug_assert!(network.player == player.slot());
-        debug_assert!(player.game() == game.name());
+        debug_assert!(network.player == sender.slot() || network.player == receiver.slot());
+        debug_assert!(sender.game() == sender_game.name());
+        debug_assert!(receiver.game() == receiver_game.name());
         Ok(LocatedItem {
-            item: game.item_or_err(network.item)?,
+            item: receiver_game.item_or_err(network.item)?,
             location: match Location::well_known(network.location) {
                 Some(location) => location,
-                None => game.location_or_err(network.location)?,
+                None => sender_game.location_or_err(network.location)?,
             },
-            player,
+            sender,
+            receiver,
             flags: network.flags,
         })
     }
@@ -56,9 +65,14 @@ impl LocatedItem {
         self.location
     }
 
-    /// The player to which this item belongs.
-    pub fn player(&self) -> &Player {
-        self.player.as_ref()
+    /// The player whose world contains [location].
+    pub fn sender(&self) -> &Player {
+        self.sender.as_ref()
+    }
+
+    /// The player to whom [item] has been or would be sent.
+    pub fn receiver(&self) -> &Player {
+        self.receiver.as_ref()
     }
 
     /// Whether this item can unblock logical advancement.
@@ -81,12 +95,13 @@ impl fmt::Debug for LocatedItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "item {} ({}) at location {} ({}) for {}",
+            "item {} ({}) at location {} ({}) from {} for {}",
             self.item.id(),
             self.item.name(),
             self.location.id(),
             self.location.name(),
-            self.player.alias(),
+            self.sender.alias(),
+            self.receiver.alias(),
         )
     }
 }

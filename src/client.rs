@@ -362,7 +362,7 @@ impl<S: DeserializeOwned> Client<S> {
 
     /// CLones the Arc for the player on the given [team] playing the given
     /// [slot].
-    pub fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
+    pub(crate) fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
         self.players
             .get(&(team, slot))
             .map(|p| p.clone())
@@ -408,14 +408,20 @@ impl<S: DeserializeOwned> Client<S> {
         if team > self.teams {
             return None;
         } else {
-            Some(self.groups.iter().map(move |g| Group::hydrate(g, team, self)))
+            Some(
+                self.groups
+                    .iter()
+                    .map(move |g| Group::hydrate(g, team, self)),
+            )
         }
     }
 
     /// The groups on the current player's.
     pub fn teammate_groups(&self) -> impl Iter<Group> {
         let team = self.player_key.0;
-        self.groups.iter().map(move |g| Group::hydrate(g, team, self))
+        self.groups
+            .iter()
+            .map(move |g| Group::hydrate(g, team, self))
     }
 
     /// Returns whether the local location with the given ID has been checked
@@ -493,20 +499,21 @@ impl<S: DeserializeOwned> Client<S> {
                     Err(err) => events.push(Event::Error(err)),
                 },
                 Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
-                    let player = &self.players[&self.player_key];
-                    let game = self.this_game();
+                    let receiver = &self.players[&self.player_key];
+                    let receiver_game = self.this_game();
 
                     let items_or_err = items
                         .into_iter()
                         .map(|network| {
-                            if network.player != self.player_key.1 {
-                                return Err(ProtocolError::ReceivedForeignItem(LocatedItem::hydrate(
-                                    network, self,
-                                )?)
-                                .into());
-                            }
-
-                            LocatedItem::hydrate_with_player_and_game(network, player.clone(), game)
+                            let sender = self.teammate_arc(network.player)?;
+                            let sender_game = self.game_or_err(sender.game())?;
+                            LocatedItem::hydrate_with_games(
+                                network,
+                                sender,
+                                receiver.clone(),
+                                sender_game,
+                                receiver_game,
+                            )
                         })
                         .collect::<Result<Vec<LocatedItem>, Error>>();
                     events.push(match items_or_err {

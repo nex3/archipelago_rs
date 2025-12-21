@@ -13,21 +13,18 @@ pub enum Print {
     /// A player received an item.
     ItemSend {
         data: Vec<RichText>,
-        receiving: Arc<Player>,
         item: LocatedItem,
     },
 
     /// A player used the `!getitem` command.
     ItemCheat {
         data: Vec<RichText>,
-        receiving: Arc<Player>,
         item: LocatedItem,
     },
 
     /// A player hinted.
     Hint {
         data: Vec<RichText>,
-        receiving: Arc<Player>,
         item: LocatedItem,
         found: bool,
     },
@@ -112,32 +109,53 @@ impl Print {
                 data,
                 receiving,
                 item,
-            } => Print::ItemSend {
-                data: RichText::hydrate_vec(data, client)?,
-                receiving: client.teammate_arc(receiving)?,
-                item: LocatedItem::hydrate(item, client)?,
-            },
+            } => {
+                let sender = client.teammate_arc(item.player)?;
+                Print::ItemSend {
+                    data: RichText::hydrate_vec(data, client)?,
+                    item: LocatedItem::hydrate(
+                        item,
+                        sender,
+                        client.teammate_arc(receiving)?,
+                        client,
+                    )?,
+                }
+            }
             NetworkPrint::ItemCheat {
                 data,
                 receiving,
                 item,
                 team,
-            } => Print::ItemCheat {
-                data: RichText::hydrate_vec(data, client)?,
-                receiving: client.player_arc(team, receiving)?,
-                item: LocatedItem::hydrate(item, client)?,
-            },
+            } => {
+                let sender = client.player_arc(team, item.player)?;
+                Print::ItemCheat {
+                    data: RichText::hydrate_vec(data, client)?,
+                    item: LocatedItem::hydrate(
+                        item,
+                        sender,
+                        client.player_arc(team, receiving)?,
+                        client,
+                    )?,
+                }
+            }
             NetworkPrint::Hint {
                 data,
                 receiving,
                 item,
                 found,
-            } => Print::Hint {
-                data: RichText::hydrate_vec(data, client)?,
-                receiving: client.teammate_arc(receiving)?,
-                item: LocatedItem::hydrate(item, client)?,
-                found: found,
-            },
+            } => {
+                let sender = client.teammate_arc(item.player)?;
+                Print::Hint {
+                    data: RichText::hydrate_vec(data, client)?,
+                    item: LocatedItem::hydrate(
+                        item,
+                        sender,
+                        client.teammate_arc(receiving)?,
+                        client,
+                    )?,
+                    found: found,
+                }
+            }
             NetworkPrint::Join {
                 data,
                 team,
