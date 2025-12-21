@@ -100,12 +100,11 @@ pub enum Permission {
     AutoEnabled = 7,
 }
 
-// TODO: Make a public-facing version of this.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkVersion {
-    pub(crate) major: u64,
-    pub(crate) minor: u64,
-    pub(crate) build: u64,
+pub(crate) struct NetworkVersion {
+    pub(crate) major: u16,
+    pub(crate) minor: u16,
+    pub(crate) build: u16,
     pub(crate) class: String,
 }
 
@@ -131,13 +130,12 @@ pub(crate) struct NetworkItem {
     pub(crate) flags: NetworkItemFlags,
 }
 
-// TODO: Make a public-facing version of this.
 bitflags! {
     #[repr(transparent)]
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(from = "u8")]
     #[serde(into = "u8")]
-    pub struct NetworkItemFlags: u8 {
+    pub(crate) struct NetworkItemFlags: u8 {
         /// The item can unlock logical advancement.
         const PROGRESSION = 0b001;
 
@@ -170,9 +168,8 @@ pub(crate) enum SlotType {
     Group = 2,
 }
 
-// TODO: Make a public-facing version of this for more than just players
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkSlot {
+pub(crate) struct NetworkSlot {
     pub(crate) name: Ustr,
     pub(crate) game: Ustr,
     pub(crate) r#type: SlotType,
@@ -201,7 +198,7 @@ pub(crate) struct ConnectUpdate {
 
 bitflags! {
     #[repr(transparent)]
-    pub struct ItemsHandlingFlags: u8 {
+    pub(crate) struct ItemsHandlingFlags: u8 {
         /// Items are sent from other worlds.
         const OTHER_WORLDS = 0b001;
 

@@ -267,7 +267,9 @@ pub enum RichText {
     Item {
         item: Item,
         player: Arc<Player>,
-        flags: NetworkItemFlags,
+        progression: bool,
+        useful: bool,
+        trap: bool,
     },
 
     /// A reference to a location in a particular player's game.
@@ -316,7 +318,9 @@ impl RichText {
                 RichText::Item {
                     item: client.game_or_err(player.game())?.item_or_err(id)?,
                     player,
-                    flags,
+                    progression: flags.contains(NetworkItemFlags::PROGRESSION),
+                    useful: flags.contains(NetworkItemFlags::USEFUL),
+                    trap: flags.contains(NetworkItemFlags::TRAP),
                 }
             }
             NetworkText::LocationId { id, player } => {

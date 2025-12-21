@@ -6,7 +6,7 @@ use ustr::{Ustr, UstrMap};
 
 use crate::{
     AsLocationId, ConnectionOptions, Error, Game, Group, Iter, Player, Print, ProtocolError,
-    Socket, protocol::*,
+    Socket, Version, protocol::*,
 };
 
 mod death_link_options;
@@ -35,8 +35,8 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
 
     // == Session information
     game: *const Game,
-    server_version: NetworkVersion,
-    generator_version: NetworkVersion,
+    server_version: Version,
+    generator_version: Version,
     server_tags: HashSet<String>,
     password_required: bool,
     permissions: PermissionMap,
@@ -108,7 +108,7 @@ impl<S: DeserializeOwned> Client<S> {
             // ArchipelagoMW/Archipelago#998 ever gets sorted out.
             uuid: "".into(),
             version: version.clone(),
-            items_handling: options.items_handling.bits(),
+            items_handling: options.item_handling.into(),
             tags: options.tags,
             slot_data: options.slot_data,
         }))?;
@@ -209,8 +209,8 @@ impl<S: DeserializeOwned> Client<S> {
         Ok(Client {
             socket,
             game,
-            server_version: room_info.version,
-            generator_version: room_info.generator_version,
+            server_version: room_info.version.into(),
+            generator_version: room_info.generator_version.into(),
             server_tags: room_info.tags,
             password_required: room_info.password_required,
             permissions: room_info.permissions,
@@ -238,12 +238,12 @@ impl<S: DeserializeOwned> Client<S> {
     }
 
     /// The version of Archipelago which the server is running.
-    pub fn server_version(&self) -> &NetworkVersion {
+    pub fn server_version(&self) -> &Version {
         &self.server_version
     }
 
     /// The version of Archipelago that generated the multiworld.
-    pub fn generator_version(&self) -> &NetworkVersion {
+    pub fn generator_version(&self) -> &Version {
         &self.generator_version
     }
 

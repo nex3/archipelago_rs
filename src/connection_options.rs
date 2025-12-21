@@ -3,7 +3,7 @@ use crate::protocol::ItemsHandlingFlags;
 /// A builder that defines options for [Connection::new].
 pub struct ConnectionOptions {
     pub(crate) password: Option<String>,
-    pub(crate) items_handling: ItemsHandlingFlags,
+    pub(crate) item_handling: ItemHandling,
     pub(crate) tags: Vec<String>,
     pub(crate) slot_data: bool,
 }
@@ -13,8 +13,7 @@ impl ConnectionOptions {
     pub fn new() -> Self {
         Self {
             password: None,
-            items_handling: ItemsHandlingFlags::OTHER_WORLDS
-                | ItemsHandlingFlags::STARTING_INVENTORY,
+            item_handling: Default::default(),
             tags: Vec::new(),
             slot_data: true,
         }
@@ -26,11 +25,10 @@ impl ConnectionOptions {
         self
     }
 
-    // TODO: Make a cleaner enum for ItemsHandlingFlags
     /// Sets which items to receive. By default, you'll receive items from other
     /// worlds and your starting inventory, but not items from your own world.
-    pub fn receive_items(mut self, items: ItemsHandlingFlags) -> Self {
-        self.items_handling = items;
+    pub fn receive_items(mut self, items: ItemHandling) -> Self {
+        self.item_handling = items;
         self
     }
 
@@ -50,5 +48,56 @@ impl ConnectionOptions {
 impl Default for ConnectionOptions {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Possible options for handling items.
+pub enum ItemHandling {
+    /// No items are sent to this client.
+    None,
+
+    /// Items are sent from other worlds.
+    OtherWorlds {
+        /// Whether to also send items that are found in the local world.
+        own_world: bool,
+
+        /// Whether to also send items in the player's starting inventory.
+        starting_inventory: bool,
+    },
+}
+
+/// The default item handling receives items from other worlds and the player's
+/// starting inventory, but not from the local world.
+impl Default for ItemHandling {
+    fn default() -> Self {
+        ItemHandling::OtherWorlds {
+            own_world: false,
+            starting_inventory: true,
+        }
+    }
+}
+
+impl From<ItemHandling> for ItemsHandlingFlags {
+    fn from(value: ItemHandling) -> ItemsHandlingFlags {
+        let mut flags = ItemsHandlingFlags::empty();
+        if let ItemHandling::OtherWorlds {
+            own_world,
+            starting_inventory,
+        } = value
+        {
+            if own_world {
+                flags.insert(ItemsHandlingFlags::OWN_WORLD);
+            }
+            if starting_inventory {
+                flags.insert(ItemsHandlingFlags::STARTING_INVENTORY);
+            }
+        }
+        flags
+    }
+}
+
+impl From<ItemHandling> for u8 {
+    fn from(value: ItemHandling) -> u8 {
+        ItemsHandlingFlags::from(value).bits()
     }
 }
