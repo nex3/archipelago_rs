@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::{ptr, sync::Arc};
+use std::{mem, ptr, sync::Arc};
 
 use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Game, Group, Iter, Player, Print, ProtocolError,
-    Socket, Version, protocol::*,
+    AsLocationId, ConnectionOptions, Error, Event, Game, Group, Iter, Player, Print, ProtocolError,
+    Socket, UpdatedField, Version, protocol::*,
 };
 
 mod death_link_options;
@@ -40,15 +40,19 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     server_tags: HashSet<String>,
     password_required: bool,
     permissions: PermissionMap,
-    points_per_hint: u64,
+    hint_cost_percentage: u8,
     hint_points_per_check: u64,
     hint_points: u64,
     seed_name: String,
     games: UstrMap<Game>,
-    player_index: usize,
-    players: Vec<Arc<Player>>,
     slot_data: S,
     groups: Vec<NetworkSlot>,
+
+    /// A map from `(team, slot)` to the player with that team and slot.
+    players: HashMap<(u64, u64), Arc<Player>>,
+
+    /// The key for the current player in [players].
+    player_key: (u64, u64),
 
     /// The number of teams in this multiworld. Also the maximum team ID.
     teams: u64,
@@ -143,7 +147,6 @@ impl<S: DeserializeOwned> Client<S> {
         mut connected: Connected<S>,
     ) -> Result<Self, Error> {
         let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
-        let points_per_hint = (total_locations as u64) * u64::from(room_info.hint_cost) / 100;
 
         let teams = connected
             .players
@@ -175,23 +178,17 @@ impl<S: DeserializeOwned> Client<S> {
                     .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
                     .ok_or_else(|| ProtocolError::MissingSlotInfo(p.slot))?
                     .game;
-                Ok(Player::hydrate(p, game).into())
+                let player = Player::hydrate(p, game);
+                Ok(((player.team(), player.slot()), player.into()))
             })
-            .collect::<Result<Vec<Arc<Player>>, Error>>()?;
-        let player_index = players
-            .iter()
-            .position(|p| p.team() == connected.team && p.slot() == connected.slot)
-            .ok_or_else(|| ProtocolError::MissingPlayer {
+            .collect::<Result<HashMap<(u64, u64), Arc<Player>>, Error>>()?;
+        let player_key = (connected.team, connected.slot);
+        if !players.contains_key(&player_key) {
+            return Err(ProtocolError::MissingPlayer {
                 team: connected.team,
                 slot: connected.slot,
-            })?;
-
-        let mut local_locations_checked = HashMap::with_capacity(total_locations);
-        for id in connected.missing_locations {
-            local_locations_checked.insert(id, false);
-        }
-        for id in connected.checked_locations {
-            local_locations_checked.insert(id, true);
+            }
+            .into());
         }
 
         let games = data_package
@@ -199,30 +196,39 @@ impl<S: DeserializeOwned> Client<S> {
             .into_iter()
             .map(|(name, data)| (name, Game::hydrate(name, data)))
             .collect::<UstrMap<_>>();
-        let game = ptr::from_ref(
-            games
-                // Safety: This is only used for the duration of the get.
-                .get(&Ustr::from(&game))
-                .ok_or_else(|| ProtocolError::MissingGameData(game.into()))?,
-        );
+        let game = games
+            // Safety: This is only used for the duration of the get.
+            .get(&Ustr::from(&game))
+            .ok_or_else(|| ProtocolError::MissingGameData(game.into()))?;
+        let game_ptr = ptr::from_ref(game);
+
+        let mut local_locations_checked = HashMap::with_capacity(total_locations);
+        for id in connected.missing_locations {
+            game.verify_location(id)?;
+            local_locations_checked.insert(id, false);
+        }
+        for id in connected.checked_locations {
+            game.verify_location(id)?;
+            local_locations_checked.insert(id, true);
+        }
 
         Ok(Client {
             socket,
-            game,
+            game: game_ptr,
             server_version: room_info.version.into(),
             generator_version: room_info.generator_version.into(),
             server_tags: room_info.tags,
             password_required: room_info.password_required,
             permissions: room_info.permissions,
-            points_per_hint,
+            hint_cost_percentage: room_info.hint_cost,
             hint_points_per_check: room_info.location_check_points,
             hint_points: connected.hint_points,
             seed_name: room_info.seed_name,
             games,
-            player_index,
-            players,
             slot_data: connected.slot_data,
             groups,
+            players,
+            player_key,
             teams,
             local_locations_checked,
         })
@@ -277,7 +283,7 @@ impl<S: DeserializeOwned> Client<S> {
     /// The number of hint points the player must accumulate in order to access
     /// a single hint.
     pub fn points_per_hint(&self) -> u64 {
-        self.points_per_hint
+        (self.local_locations_checked.len() as u64) * u64::from(self.hint_cost_percentage) / 100
     }
 
     /// The number of hint points granted for each location a player checks.
@@ -339,30 +345,26 @@ impl<S: DeserializeOwned> Client<S> {
 
     /// The player that's currently connected to the multiworld.
     pub fn this_player(&self) -> &Player {
-        self.players[self.player_index].as_ref()
+        self.players[&self.player_key].as_ref()
     }
 
     /// All players in the multiworld.
     pub fn players(&self) -> impl Iter<&Player> {
-        self.players.iter().map(|p| p.as_ref())
+        self.players.values().map(|p| p.as_ref())
     }
 
     /// The player on the given [team] playing the given [slot], if one exists.
     ///
     /// See also [teammate] to only check the current player's team.
     pub fn player(&self, team: u64, slot: u64) -> Option<&Player> {
-        self.players
-            .iter()
-            .find(|p| p.team() == team && p.slot() == slot)
-            .map(|p| p.as_ref())
+        self.players.get(&(team, slot)).map(|p| p.as_ref())
     }
 
     /// CLones the Arc for the player on the given [team] playing the given
     /// [slot].
     pub fn player_arc(&self, team: u64, slot: u64) -> Result<Arc<Player>, Error> {
         self.players
-            .iter()
-            .find(|p| p.team() == team && p.slot() == slot)
+            .get(&(team, slot))
             .map(|p| p.clone())
             .ok_or_else(|| ProtocolError::MissingPlayer { team, slot }.into())
     }
@@ -373,7 +375,7 @@ impl<S: DeserializeOwned> Client<S> {
     /// See also [assert_teammate] to only check the current player's team.
     pub fn assert_player(&self, team: u64, slot: u64) -> &Player {
         self.player(team, slot).unwrap_or_else(|| {
-            if self.players.iter().any(|p| p.team() == team) {
+            if self.players.keys().any(|k| k.0 == team) {
                 panic!("no player with slot {}", slot);
             } else {
                 panic!("no team with ID {}", team);
@@ -384,13 +386,13 @@ impl<S: DeserializeOwned> Client<S> {
     /// The player playing the given [slot] on the current player's team, if one
     /// exists.
     pub fn teammate(&self, slot: u64) -> Option<&Player> {
-        self.player(self.this_player().team(), slot)
+        self.player(self.player_key.0, slot)
     }
 
     /// A clone of the [Arc] for the player playing the given [slot] on the
     /// current player's team.
     pub(crate) fn teammate_arc(&self, slot: u64) -> Result<Arc<Player>, Error> {
-        self.player_arc(self.this_player().team(), slot)
+        self.player_arc(self.player_key.0, slot)
     }
 
     /// The player playing the given [slot] on the current player's team. Panics
@@ -398,7 +400,7 @@ impl<S: DeserializeOwned> Client<S> {
     ///
     /// See also [assert_teammate] to only check the current player's team.
     pub fn assert_teammate(&self, slot: u64) -> &Player {
-        self.assert_player(self.this_player().team(), slot)
+        self.assert_player(self.player_key.0, slot)
     }
 
     /// The groups on the given [team], if such a team exists.
@@ -412,7 +414,7 @@ impl<S: DeserializeOwned> Client<S> {
 
     /// The groups on the current player's.
     pub fn teammate_groups(&self) -> impl Iter<Group> {
-        let team = self.this_player().team();
+        let team = self.player_key.0;
         self.groups.iter().map(move |g| Group::new(g, team, self))
     }
 
@@ -468,12 +470,115 @@ impl<S: DeserializeOwned> Client<S> {
                 Ok(Some(ServerMessage::PlainPrint(PlainPrint { text }))) => {
                     events.push(Event::Print(Print::message(text)))
                 }
+                Ok(Some(ServerMessage::RoomUpdate(update))) => match self.update_room(update) {
+                    Ok(event) => events.push(event),
+                    Err(err) => events.push(Event::Error(err)),
+                },
                 // TODO: dispatch all events
                 Ok(Some(_)) => todo!(),
                 Ok(None) => return events,
                 Err(err) => events.push(Event::Error(err)),
             }
         }
+    }
+
+    /// Updates the room with the information in [update].
+    fn update_room(&mut self, update: RoomUpdate) -> Result<Event, Error> {
+        // Check for errors before making any changes so we don't end up in an
+        // intermediate state.
+        let checked_locations = update
+            .checked_locations
+            .map(|ids| {
+                let game = self.this_game();
+                ids.into_iter()
+                    .map(|id| game.location_or_err(id))
+                    .collect::<Result<Vec<_>, Error>>()
+            })
+            .transpose()?;
+
+        let updated_players = update
+            .players
+            .map(|players| {
+                players
+                    .into_iter()
+                    .filter_map(|new| {
+                        self.players
+                            .get(&(new.team, new.slot))
+                            .ok_or_else(|| ProtocolError::MissingPlayer {
+                                team: new.team,
+                                slot: new.slot,
+                            })
+                            .map(|old| {
+                                if old.alias() == new.alias {
+                                    None
+                                } else {
+                                    Some(Player::hydrate(new, old.game()))
+                                }
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<_>, ProtocolError>>()
+            })
+            .transpose()?;
+
+        let mut updated = Vec::new();
+        if let Some(tags) = update.tags {
+            updated.push(UpdatedField::ServerTags(mem::replace(
+                &mut self.server_tags,
+                HashSet::from_iter(tags),
+            )))
+        }
+
+        if let Some(permissions) = update.permissions {
+            updated.push(UpdatedField::Permissions {
+                release: self.permissions.release,
+                collect: self.permissions.collect,
+                remaining: self.permissions.remaining,
+            });
+            self.permissions = permissions;
+        }
+
+        if update.hint_cost.is_some() || update.location_check_points.is_some() {
+            updated.push(UpdatedField::HintEconomy {
+                points_per_hint: self.points_per_hint(),
+                hint_points_per_check: self.hint_points_per_check(),
+            });
+            if let Some(hint_cost_percentage) = update.hint_cost {
+                self.hint_cost_percentage = hint_cost_percentage;
+            }
+            if let Some(hint_points_per_check) = update.location_check_points {
+                self.hint_points_per_check = hint_points_per_check;
+            }
+        }
+
+        if let Some(hint_points) = update.hint_points {
+            updated.push(UpdatedField::HintPoints(mem::replace(
+                &mut self.hint_points,
+                hint_points,
+            )))
+        }
+
+        if let Some(players) = updated_players {
+            updated.push(UpdatedField::Players(
+                players
+                    .into_iter()
+                    .filter_map(|p| self.players.insert((p.team(), p.slot()), p.into()))
+                    .collect(),
+            ))
+        }
+
+        if let Some(locations) = checked_locations {
+            updated.push(UpdatedField::CheckedLocations(
+                locations
+                    .into_iter()
+                    // Omit locations that we already know are checked from
+                    // local information.
+                    .filter(|loc| !self.local_locations_checked.insert(loc.id(), true).unwrap())
+                    .collect(),
+            ))
+        }
+
+        Ok(Event::Updated(updated))
     }
 }
 
@@ -482,28 +587,3 @@ impl<S: DeserializeOwned> Client<S> {
 // Since we treat slot data as immutable anyway, we can guarantee that nothing
 // will change and so it's safe to declare the entire Client as Unpin.
 impl<S> Unpin for Client<S> where S: DeserializeOwned {}
-
-/// Events from the Archipelago server that clients may want to handle.
-///
-/// This only encompasses events that can be spontaneously sent by the server.
-/// Events that are only ever sent as replies to client requests are represented
-/// as [Future]s instead.
-pub enum Event {
-    /// The client has established a successful connection. This is only emitted
-    /// from [Connection.update] and only once, always as the first event.
-    Connected,
-
-    /// A message for the client to display to the player.
-    Print(Print),
-
-    /// The client has encountered an error.
-    ///
-    /// Once this event has been emitted, the client should be considered
-    /// closed. It will emit no more events and any attempts to send requests
-    /// will fail.
-    ///
-    /// When emitted from [Connection.update], this will be [Error::Elsewhere]
-    /// and the actual error will be available from [Connection.state] or
-    /// [Connection.into_err].
-    Error(Error),
-}

@@ -364,26 +364,19 @@ pub(crate) struct LocationInfo {
     pub(crate) locations: Vec<NetworkItem>,
 }
 
+// We only include fields here that might plausibly be changed during the
+// lifetime of a single connection.
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RoomUpdate {
     // Copied from RoomInfo
-    pub(crate) version: Option<NetworkVersion>,
     pub(crate) tags: Option<Vec<String>>,
-    #[serde(rename = "password")]
-    pub(crate) password_required: Option<bool>,
     pub(crate) permissions: Option<PermissionMap>,
-    pub(crate) hint_cost: Option<i64>,
-    pub(crate) location_check_points: Option<i64>,
-    pub(crate) games: Option<Vec<String>>,
-    pub(crate) datapackage_versions: Option<HashMap<String, i64>>,
-    pub(crate) datapackage_checksums: Option<HashMap<String, String>>,
-    pub(crate) seed_name: Option<String>,
-    pub(crate) time: Option<f64>,
-    // Exclusive to RoomUpdate
-    pub(crate) hint_points: Option<i64>,
+    pub(crate) hint_cost: Option<u8>,
+    pub(crate) location_check_points: Option<u64>,
+    // Copied from Connected
+    pub(crate) hint_points: Option<u64>,
     pub(crate) players: Option<Vec<NetworkPlayer>>,
     pub(crate) checked_locations: Option<Vec<i64>>,
-    pub(crate) missing_locations: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

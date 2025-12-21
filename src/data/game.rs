@@ -136,16 +136,13 @@ impl Game {
     /// Returns the item with the given [id] or an [Error] if it can't be found.
     pub(crate) fn item_or_err(&self, id: impl AsItemId) -> Result<Item, Error> {
         let id = id.as_item_id();
-        self.items_by_id
-            .get(&id)
-            .map(|i| self.items[*i])
-            .ok_or_else(|| {
-                ProtocolError::MissingItem {
-                    id,
-                    game: self.name,
-                }
-                .into()
-            })
+        self.item(id).ok_or_else(|| {
+            ProtocolError::MissingItem {
+                id,
+                game: self.name,
+            }
+            .into()
+        })
     }
 
     /// Returns the item for the given [id]. Panics if there's no item with this
@@ -183,16 +180,25 @@ impl Game {
     /// found.
     pub(crate) fn location_or_err(&self, id: impl AsLocationId) -> Result<Location, Error> {
         let id = id.as_location_id();
-        self.locations_by_id
-            .get(&id)
-            .map(|i| self.locations[*i])
-            .ok_or_else(|| {
-                ProtocolError::MissingLocation {
-                    id,
-                    game: self.name,
-                }
-                .into()
-            })
+        self.location(id).ok_or_else(|| {
+            ProtocolError::MissingLocation {
+                id,
+                game: self.name,
+            }
+            .into()
+        })
+    }
+
+    /// Returns an [Error] if [id] isn't a location in this game.
+    pub(crate) fn verify_location(&self, id: impl AsLocationId) -> Result<(), Error> {
+        let id = id.as_location_id();
+        self.locations_by_id.get(&id).map(|_| ()).ok_or_else(|| {
+            ProtocolError::MissingLocation {
+                id,
+                game: self.name,
+            }
+            .into()
+        })
     }
 
     /// Returns the location for the given [id]. Panics if there's no location
