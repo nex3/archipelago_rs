@@ -16,7 +16,7 @@ pub struct LocatedItem {
 
 impl LocatedItem {
     /// Creates a fully-hydrated [LocatedItem] from a [NetworkItem].
-    pub(crate) fn new<S: DeserializeOwned>(
+    pub(crate) fn hydrate<S: DeserializeOwned>(
         network: NetworkItem,
         client: &Client<S>,
     ) -> Result<LocatedItem, Error> {
@@ -24,11 +24,11 @@ impl LocatedItem {
         let game = client
             .game(player.game())
             .ok_or_else(|| ProtocolError::MissingGameData(player.game()))?;
-        LocatedItem::new_with_player_and_game(network, player, game)
+        LocatedItem::hydrate_with_player_and_game(network, player, game)
     }
 
     /// Creates a fully-hydrated [LocatedItem] from an existing [player] and [game].
-    pub(crate) fn new_with_player_and_game(
+    pub(crate) fn hydrate_with_player_and_game(
         network: NetworkItem,
         player: Arc<Player>,
         game: &Game,

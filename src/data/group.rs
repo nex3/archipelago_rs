@@ -20,7 +20,7 @@ impl Group {
     /// We have to do this each time a group is accessed because the client's
     /// name could have been replaced, which we handle by updating the entire
     /// client struct.
-    pub(crate) fn new<S: DeserializeOwned>(
+    pub(crate) fn hydrate<S: DeserializeOwned>(
         network: &NetworkSlot,
         team: u32,
         client: &Client<S>,

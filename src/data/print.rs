@@ -103,7 +103,7 @@ pub enum Print {
 
 impl Print {
     /// Create this from a [NetworkPrint] using information from the client.
-    pub(crate) fn new<S: DeserializeOwned>(
+    pub(crate) fn hydrate<S: DeserializeOwned>(
         network: NetworkPrint,
         client: &Client<S>,
     ) -> Result<Self, Error> {
@@ -113,9 +113,9 @@ impl Print {
                 receiving,
                 item,
             } => Print::ItemSend {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 receiving: client.teammate_arc(receiving)?,
-                item: LocatedItem::new(item, client)?,
+                item: LocatedItem::hydrate(item, client)?,
             },
             NetworkPrint::ItemCheat {
                 data,
@@ -123,9 +123,9 @@ impl Print {
                 item,
                 team,
             } => Print::ItemCheat {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 receiving: client.player_arc(team, receiving)?,
-                item: LocatedItem::new(item, client)?,
+                item: LocatedItem::hydrate(item, client)?,
             },
             NetworkPrint::Hint {
                 data,
@@ -133,9 +133,9 @@ impl Print {
                 item,
                 found,
             } => Print::Hint {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 receiving: client.teammate_arc(receiving)?,
-                item: LocatedItem::new(item, client)?,
+                item: LocatedItem::hydrate(item, client)?,
                 found: found,
             },
             NetworkPrint::Join {
@@ -144,12 +144,12 @@ impl Print {
                 slot,
                 tags,
             } => Print::Join {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
                 tags,
             },
             NetworkPrint::Part { data, team, slot } => Print::Part {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
             },
             NetworkPrint::Chat {
@@ -158,16 +158,16 @@ impl Print {
                 slot,
                 message,
             } => Print::Chat {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
                 message,
             },
             NetworkPrint::ServerChat { data, message } => Print::ServerChat {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 message,
             },
             NetworkPrint::Tutorial { data } => Print::Tutorial {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
             },
             NetworkPrint::TagsChanged {
                 data,
@@ -175,34 +175,34 @@ impl Print {
                 slot,
                 tags,
             } => Print::TagsChanged {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
                 tags,
             },
             NetworkPrint::CommandResult { data } => Print::CommandResult {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
             },
             NetworkPrint::AdminCommandResult { data } => Print::AdminCommandResult {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
             },
             NetworkPrint::Goal { data, team, slot } => Print::Goal {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
             },
             NetworkPrint::Release { data, team, slot } => Print::Release {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
             },
             NetworkPrint::Collect { data, team, slot } => Print::Collect {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 player: client.player_arc(team, slot)?,
             },
             NetworkPrint::Countdown { data, countdown } => Print::Countdown {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
                 countdown,
             },
             NetworkPrint::Unknown { data } => Print::Unknown {
-                data: RichText::new_vec(data, client)?,
+                data: RichText::hydrate_vec(data, client)?,
             },
         })
     }
@@ -296,17 +296,17 @@ pub enum RichText {
 
 impl RichText {
     /// Converts [NetworkText]s in [vec] to [RichText]s.
-    fn new_vec<S: DeserializeOwned>(
+    fn hydrate_vec<S: DeserializeOwned>(
         vec: Vec<NetworkText>,
         client: &Client<S>,
     ) -> Result<Vec<RichText>, Error> {
         vec.into_iter()
-            .map(|rt| RichText::new(rt, client))
+            .map(|rt| RichText::hydrate(rt, client))
             .collect()
     }
 
     /// Creates this from a [NetworkText] using information from the client.
-    fn new<S: DeserializeOwned>(
+    fn hydrate<S: DeserializeOwned>(
         network: NetworkText,
         client: &Client<S>,
     ) -> Result<RichText, Error> {
