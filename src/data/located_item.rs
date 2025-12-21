@@ -3,7 +3,7 @@ use std::{fmt, sync::Arc};
 use serde::de::DeserializeOwned;
 
 use crate::protocol::{NetworkItem, NetworkItemFlags};
-use crate::{Client, Error, Item, Location, Player, ProtocolError};
+use crate::{Client, Error, Game, Item, Location, Player, ProtocolError};
 
 /// An item associated with a particular location in particular player's world.
 #[derive(Clone)]
@@ -24,6 +24,17 @@ impl LocatedItem {
         let game = client
             .game(player.game())
             .ok_or_else(|| ProtocolError::MissingGameData(player.game()))?;
+        LocatedItem::new_with_player_and_game(network, player, game)
+    }
+
+    /// Creates a fully-hydrated [LocatedItem] from an existing [player] and [game].
+    pub(crate) fn new_with_player_and_game(
+        network: NetworkItem,
+        player: Arc<Player>,
+        game: &Game,
+    ) -> Result<LocatedItem, Error> {
+        debug_assert!(network.player == player.slot());
+        debug_assert!(player.game() == game.name());
         Ok(LocatedItem {
             item: game.item_or_err(network.item)?,
             location: match Location::well_known(network.location) {

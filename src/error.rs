@@ -1,6 +1,8 @@
 use thiserror::Error as ThisError;
 use ustr::Ustr;
 
+use crate::LocatedItem;
+
 /// The enumeration of all possible errors that can occur in an Archipelago
 /// connection.
 #[derive(ThisError, Debug)]
@@ -184,4 +186,9 @@ pub enum ProtocolError {
         /// The name of the game that was expected to have this location ID.
         game: Ustr,
     },
+
+    /// The server sent us an item whose player ID doesn't match the current
+    /// player.
+    #[error("server sent {0:?} to this player")]
+    ReceivedForeignItem(LocatedItem),
 }

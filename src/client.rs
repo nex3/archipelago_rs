@@ -5,8 +5,8 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Event, Game, Group, Iter, Location, Player, Print,
-    ProtocolError, Socket, UnsizedIter, UpdatedField, Version, protocol::*,
+    AsLocationId, ConnectionOptions, Error, Event, Game, Group, Iter, LocatedItem, Location,
+    Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField, Version, protocol::*,
 };
 
 mod death_link_options;
@@ -492,6 +492,28 @@ impl<S: DeserializeOwned> Client<S> {
                     Ok(event) => events.push(event),
                     Err(err) => events.push(Event::Error(err)),
                 },
+                Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
+                    let player = &self.players[&self.player_key];
+                    let game = self.this_game();
+
+                    let items_or_err = items
+                        .into_iter()
+                        .map(|network| {
+                            if network.player != self.player_key.1 {
+                                return Err(ProtocolError::ReceivedForeignItem(LocatedItem::new(
+                                    network, self,
+                                )?)
+                                .into());
+                            }
+
+                            LocatedItem::new_with_player_and_game(network, player.clone(), game)
+                        })
+                        .collect::<Result<Vec<LocatedItem>, Error>>();
+                    events.push(match items_or_err {
+                        Ok(items) => Event::ReceivedItems { index, items },
+                        Err(err) => Event::Error(err),
+                    })
+                }
                 // TODO: dispatch all events
                 Ok(Some(_)) => todo!(),
                 Ok(None) => return events,
