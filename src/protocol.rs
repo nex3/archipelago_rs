@@ -220,7 +220,24 @@ pub(crate) struct LocationChecks {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct LocationScouts {
     pub(crate) locations: Vec<i64>,
-    pub(crate) create_as_hint: u8,
+    pub(crate) create_as_hint: CreateAsHint,
+}
+
+/// Options for whether and how locations scouted with [Client.scout_locations]
+/// should be broadcast as player-visible hints.
+#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub enum CreateAsHint {
+    /// Don't broadcast locations as hints. Scouted locations will only be
+    /// visible to the client code, not to the player.
+    No = 0,
+
+    /// Broadcast all scouted locations as hints.
+    All = 1,
+
+    /// Broadcast only locations that haven't already been hinted as hints. The
+    /// [Event::ScoutedLocations] reply will still contain *all* locations.
+    New = 2,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

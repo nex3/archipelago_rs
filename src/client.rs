@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::{mem, ptr, sync::Arc};
 
 use serde::de::DeserializeOwned;
@@ -60,6 +60,9 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     /// A map from location IDs for this game to booleans indicating whether or
     /// not they've been checked.
     local_locations_checked: HashMap<i64, bool>,
+
+    /// Senders for [Client.scout_locations_as_oneshot].
+    location_scout_senders: VecDeque<oneshot::Sender<Result<Vec<LocatedItem>, Error>>>,
 }
 
 impl<S: DeserializeOwned> Client<S> {
@@ -231,6 +234,7 @@ impl<S: DeserializeOwned> Client<S> {
             player_key,
             teams,
             local_locations_checked,
+            location_scout_senders: Default::default(),
         })
     }
 
@@ -464,6 +468,40 @@ impl<S: DeserializeOwned> Client<S> {
         &self.slot_data
     }
 
+    // == Requests
+
+    /// Sends a request to the server that can serve one or both of two
+    /// purposes:
+    ///
+    /// * Informing the client which items exist at which locations. At some
+    ///   point shortly after this is called, the server will emit an
+    ///   [Event::ScoutedLocations] which includes [LocatedItem]s for each
+    ///   [location].
+    ///
+    /// * Informing the server of locations that the client has seen but not
+    ///   checked. If [CreateAsHint.All] or [CreateAsHint.New] is passed,
+    ///   scouted locations will be broadcast as hints without deducting hint
+    ///   points from the player.
+    pub fn scout_locations<T: AsLocationId>(
+        &mut self,
+        locations: impl IntoIterator<Item = T>,
+        create_as_hint: CreateAsHint,
+    ) -> oneshot::Receiver<Result<Vec<LocatedItem>, Error>> {
+        let (sender, receiver) = oneshot::channel();
+        match self
+            .socket
+            .send(ClientMessage::LocationScouts(LocationScouts {
+                locations: locations.into_iter().map(|l| l.as_location_id()).collect(),
+                create_as_hint,
+            })) {
+            Ok(()) => self.location_scout_senders.push_back(sender),
+            // If `send()` returns an error, that means that the receiver was
+            // dropped, which is fine to silently ignore.
+            Err(err) => mem::drop(sender.send(Err(err))),
+        }
+        receiver
+    }
+
     // == Event handling
 
     /// Returns any pending [Event]s from the Archipelago server and updates the
@@ -520,6 +558,32 @@ impl<S: DeserializeOwned> Client<S> {
                         Ok(items) => Event::ReceivedItems { index, items },
                         Err(err) => Event::Error(err),
                     })
+                }
+                Ok(Some(ServerMessage::LocationInfo(LocationInfo { locations }))) => {
+                    let sender = &self.players[&self.player_key];
+                    let sender_game = self.this_game();
+
+                    let locations_or_err = locations
+                        .into_iter()
+                        .map(|network| {
+                            let receiver = self.teammate_arc(network.player)?;
+                            let receiver_game = self.game_or_err(sender.game())?;
+                            LocatedItem::hydrate_with_games(
+                                network,
+                                sender.clone(),
+                                receiver,
+                                sender_game,
+                                receiver_game,
+                            )
+                        })
+                        .collect::<Result<Vec<LocatedItem>, Error>>();
+                    if let Some(sender) = self.location_scout_senders.pop_front() {
+                        mem::drop(sender.send(locations_or_err));
+                    } else {
+                        events.push(Event::Error(
+                            ProtocolError::ResponseWithoutRequest("LocationInfo").into(),
+                        ));
+                    }
                 }
                 // TODO: dispatch all events
                 Ok(Some(_)) => todo!(),

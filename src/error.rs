@@ -191,4 +191,8 @@ pub enum ProtocolError {
     /// player.
     #[error("server sent {0:?} to this player")]
     ReceivedForeignItem(LocatedItem),
+
+    /// The server sent a response that we didn't request.
+    #[error("server sent {0} response that we didn't request")]
+    ResponseWithoutRequest(&'static str),
 }
