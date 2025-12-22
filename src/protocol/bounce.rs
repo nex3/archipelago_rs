@@ -1,27 +1,33 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error, ser::*};
 use serde_json;
 use serde_json::Value;
 use serde_with::{TimestampSeconds, serde_as};
+use ustr::{Ustr, UstrSet};
+
+/// The name of the tag that indicates death links.
+pub(crate) static DEATH_LINK_TAG: LazyLock<Ustr> = LazyLock::new(|| Ustr::from("DeathLink"));
 
 #[derive(Debug, Clone)]
-pub struct Bounced {
-    pub games: Option<Vec<String>>,
-    pub slots: Option<Vec<i64>>,
-    pub tags: Vec<String>,
-    pub data: BounceData,
+pub(crate) struct Bounced {
+    pub(crate) games: Option<UstrSet>,
+    pub(crate) slots: Option<HashSet<u32>>,
+    pub(crate) tags: Option<UstrSet>,
+    pub(crate) data: BounceData,
 }
 
 /// An internal representation of the [Bounced] struct, used as an intermediate
 /// state to determine how to decode the [BounceData].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct InternalBounced {
-    pub games: Option<Vec<String>>,
-    pub slots: Option<Vec<i64>>,
+    games: Option<UstrSet>,
+    slots: Option<HashSet<u32>>,
     #[serde(default)]
-    pub tags: Vec<String>,
-    pub data: Value,
+    tags: Option<UstrSet>,
+    data: Option<Value>,
 }
 
 // Deserialize Bounced based on its tags.
@@ -31,15 +37,19 @@ impl<'de> Deserialize<'de> for Bounced {
         D: Deserializer<'de>,
     {
         let internal = InternalBounced::deserialize(deserializer)?;
-        if internal.tags.iter().any(|t| t == "DeathLink") {
+        if let Some(ref tags) = internal.tags
+            && tags.contains(&*DEATH_LINK_TAG)
+        {
             Ok(Bounced {
                 games: internal.games,
                 slots: internal.slots,
                 tags: internal.tags,
-                data: BounceData::DeathLink(match serde_json::from_value(internal.data) {
-                    Ok(data) => data,
-                    Err(err) => return Err(D::Error::custom(err)),
-                }),
+                data: BounceData::DeathLink(
+                    match serde_json::from_value(internal.data.unwrap_or_default()) {
+                        Ok(data) => data,
+                        Err(err) => return Err(D::Error::custom(err)),
+                    },
+                ),
             })
         } else {
             Ok(Bounced {
@@ -53,11 +63,12 @@ impl<'de> Deserialize<'de> for Bounced {
 }
 
 #[derive(Debug, Clone)]
-pub enum BounceData {
+pub(crate) enum BounceData {
     DeathLink(DeathLink),
-    Generic(Value),
+    Generic(Option<Value>),
 }
 
+/// A death link, indicating a
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeathLink {
@@ -68,11 +79,11 @@ pub struct DeathLink {
 }
 
 #[derive(Debug, Clone)]
-pub struct Bounce {
-    pub games: Option<Vec<String>>,
-    pub slots: Option<Vec<String>>,
-    pub tags: Vec<String>,
-    pub data: BounceData,
+pub(crate) struct Bounce {
+    pub(crate) games: Option<Vec<String>>,
+    pub(crate) slots: Option<Vec<String>>,
+    pub(crate) tags: Vec<String>,
+    pub(crate) data: BounceData,
 }
 
 impl Serialize for Bounce {

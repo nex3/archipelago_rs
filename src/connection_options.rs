@@ -1,10 +1,12 @@
+use ustr::{Ustr, UstrSet};
+
 use crate::protocol::ItemsHandlingFlags;
 
 /// A builder that defines options for [Connection::new].
 pub struct ConnectionOptions {
     pub(crate) password: Option<String>,
     pub(crate) item_handling: ItemHandling,
-    pub(crate) tags: Vec<String>,
+    pub(crate) tags: UstrSet,
     pub(crate) slot_data: bool,
 }
 
@@ -14,7 +16,7 @@ impl ConnectionOptions {
         Self {
             password: None,
             item_handling: Default::default(),
-            tags: Vec::new(),
+            tags: Default::default(),
             slot_data: true,
         }
     }
@@ -33,7 +35,7 @@ impl ConnectionOptions {
     }
 
     /// Sets the tags to send to the server to identify details of this client.
-    pub fn tags(mut self, tags: impl IntoIterator<Item: Into<String>>) -> Self {
+    pub fn tags(mut self, tags: impl IntoIterator<Item: Into<Ustr>>) -> Self {
         self.tags = tags.into_iter().map(|t| t.into()).collect();
         self
     }

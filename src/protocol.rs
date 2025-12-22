@@ -7,7 +7,7 @@ use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::DisplayFromStr;
 use serde_with::serde_as;
-use ustr::Ustr;
+use ustr::{Ustr, UstrSet};
 
 mod bounce;
 mod print;
@@ -186,7 +186,7 @@ pub(crate) struct Connect {
     pub(crate) uuid: String,
     pub(crate) version: NetworkVersion,
     pub(crate) items_handling: u8,
-    pub(crate) tags: Vec<String>,
+    pub(crate) tags: UstrSet,
     pub(crate) slot_data: bool,
 }
 

@@ -529,13 +529,16 @@ impl<S: DeserializeOwned> Client<S> {
                     Ok(print) => events.push(Event::Print(print)),
                     Err(err) => events.push(Event::Error(err)),
                 },
+
                 Ok(Some(ServerMessage::PlainPrint(PlainPrint { text }))) => {
                     events.push(Event::Print(Print::message(text)))
                 }
+
                 Ok(Some(ServerMessage::RoomUpdate(update))) => match self.update_room(update) {
                     Ok(event) => events.push(event),
                     Err(err) => events.push(Event::Error(err)),
                 },
+
                 Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
                     let receiver = &self.players[&self.player_key];
                     let receiver_game = self.this_game();
@@ -559,6 +562,7 @@ impl<S: DeserializeOwned> Client<S> {
                         Err(err) => Event::Error(err),
                     })
                 }
+
                 Ok(Some(ServerMessage::LocationInfo(LocationInfo { locations }))) => {
                     let sender = &self.players[&self.player_key];
                     let sender_game = self.this_game();
@@ -585,6 +589,33 @@ impl<S: DeserializeOwned> Client<S> {
                         ));
                     }
                 }
+
+                Ok(Some(ServerMessage::Bounced(Bounced {
+                    games,
+                    slots,
+                    tags,
+                    data: BounceData::Generic(data),
+                }))) => events.push(Event::Bounce {
+                    games,
+                    slots,
+                    tags,
+                    data,
+                }),
+
+                Ok(Some(ServerMessage::Bounced(Bounced {
+                    games,
+                    slots,
+                    tags,
+                    data: BounceData::DeathLink(data),
+                }))) => events.push(Event::DeathLink {
+                    games,
+                    slots,
+                    tags: tags.unwrap(),
+                    time: data.time,
+                    cause: data.cause,
+                    source: data.source,
+                }),
+
                 // TODO: dispatch all events
                 Ok(Some(_)) => todo!(),
                 Ok(None) => return events,

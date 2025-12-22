@@ -1,4 +1,6 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{collections::HashSet, sync::Arc, time::SystemTime};
+
+use ustr::UstrSet;
 
 use crate::{Error, LocatedItem, Location, Player, Print, protocol::Permission};
 
@@ -50,6 +52,55 @@ pub enum Event {
     /// and the actual error will be available from [Connection.state] or
     /// [Connection.into_err].
     Error(Error),
+
+    /// An event sent by other clients in the multiworld. The specific meaning
+    /// of this is determined by those clients.
+    Bounce {
+        /// The set of games this is targeting. If this is `None`, it's not
+        /// limited to specific games.
+        games: Option<UstrSet>,
+
+        /// The set of all slots this is targeting. If this is `None`, it's not
+        /// limited to specific slots.
+        slots: Option<HashSet<u32>>,
+
+        /// The set of all tags this is targeting. If this is `None`, it's not
+        /// limited to specific tags.
+        tags: Option<UstrSet>,
+
+        /// Data attached to the event, if any.
+        data: Option<serde_json::Value>,
+    },
+
+    /// A death link event, indicating that participating clients should kill
+    /// the player because another player died. This is only received if
+    /// `"DeathLink"` is passed to [ConnectionOptions.tags].
+    DeathLink {
+        /// The set of games this is targeting. If this is `None`, it's not
+        /// limited to specific games.
+        games: Option<UstrSet>,
+
+        /// The set of all slots this is targeting. If this is `None`, it's not
+        /// limited to specific slots.
+        slots: Option<HashSet<u32>>,
+
+        /// The set of all tags this is targeting. This will always contain at
+        /// least `"DeathLink"`.
+        tags: UstrSet,
+
+        /// The time the death link was sent, according to the sender. There's
+        /// no guarantee that this has any particular relationship to the
+        /// current system's time.
+        time: SystemTime,
+
+        /// Text to explain the cause of death. This is expected to contain the
+        /// name of the player who died.
+        cause: Option<String>,
+
+        /// The name of the player who first died. This can be a slot name or a
+        /// name from within a multiplayer game.
+        source: String,
+    },
 }
 
 /// An enum that indicates exactly what in a [Client] was updated.
