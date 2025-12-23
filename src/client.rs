@@ -586,6 +586,11 @@ impl<S: DeserializeOwned> Client<S> {
             .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
     }
 
+    /// Braodcasts [text] to all teammates in the multiworld.
+    pub fn say(&mut self, text: String) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Say(Say { text }))
+    }
+
     /// Retrieves custom data from the server's data store. The specific
     /// structure of the data is up to the clients that set it.
     ///
