@@ -5,9 +5,9 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
-    LocatedItem, Location, Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField,
-    Version, protocol::*,
+    protocol::*, ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group,
+    ItemHandling, Iter, LocatedItem, Location, Player, Print, ProtocolError, Socket, UnsizedIter,
+    UpdatedField, Version,
 };
 
 mod death_link_options;
@@ -578,6 +578,12 @@ impl<S: DeserializeOwned> Client<S> {
             location,
             status,
         }))
+    }
+
+    /// Notifies the server that the client has the given [status].
+    pub fn set_status(&mut self, status: ClientStatus) -> Result<(), Error> {
+        self.socket
+            .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
     }
 
     /// Retrieves custom data from the server's data store. The specific

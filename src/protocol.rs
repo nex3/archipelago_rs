@@ -267,13 +267,20 @@ pub(crate) struct StatusUpdate {
     pub(crate) status: ClientStatus,
 }
 
+/// Possible states for the client.
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
-pub(crate) enum ClientStatus {
-    ClientUnknown = 0,
-    ClientReady = 10,
-    ClientPlaying = 20,
-    ClientGoal = 30,
+#[repr(u8)]
+pub enum ClientStatus {
+    Unknown = 0,
+
+    /// One or more clients are connected to the server. This is automatically
+    /// set when the connection is first established.
+    Connected = 5,
+    Ready = 10,
+    Playing = 20,
+
+    /// This player has achieved their goal.
+    Goal = 30,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
