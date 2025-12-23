@@ -178,26 +178,27 @@ pub(crate) struct NetworkSlot {
 
 // REQUESTS
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct Connect {
     pub(crate) password: Option<String>,
     pub(crate) game: String,
     pub(crate) name: String,
     pub(crate) uuid: String,
     pub(crate) version: NetworkVersion,
-    pub(crate) items_handling: u8,
+    pub(crate) items_handling: ItemsHandlingFlags,
     pub(crate) tags: UstrSet,
     pub(crate) slot_data: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct ConnectUpdate {
-    pub(crate) items_handling: u8,
-    pub(crate) tags: Vec<String>,
+    pub(crate) items_handling: Option<ItemsHandlingFlags>,
+    pub(crate) tags: Option<Vec<Ustr>>,
 }
 
 bitflags! {
-    #[repr(transparent)]
+    #[derive(Debug, Clone, Copy, Serialize)]
+    #[serde(into = "u8")]
     pub(crate) struct ItemsHandlingFlags: u8 {
         /// Items are sent from other worlds.
         const OTHER_WORLDS = 0b001;
@@ -209,6 +210,12 @@ bitflags! {
         /// Items are sent from your starting inventory. Setting this
         /// automatically sets [OTHER_WORLDS] as well.
         const STARTING_INVENTORY = 0b101;
+    }
+}
+
+impl From<ItemsHandlingFlags> for u8 {
+    fn from(value: ItemsHandlingFlags) -> Self {
+        value.bits()
     }
 }
 

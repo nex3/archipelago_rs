@@ -5,8 +5,9 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Event, Game, Group, Iter, LocatedItem, Location,
-    Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField, Version, protocol::*,
+    AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter, LocatedItem,
+    Location, Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField, Version,
+    protocol::*,
 };
 
 mod death_link_options;
@@ -473,6 +474,19 @@ impl<S: DeserializeOwned> Client<S> {
     }
 
     // == Requests
+
+    /// Updates the current connection settings with new [item_handling] and/or [tags].
+    pub fn update_connection(
+        &mut self,
+        item_handling: Option<ItemHandling>,
+        tags: Option<impl IntoIterator<Item: Into<Ustr>>>,
+    ) -> Result<(), Error> {
+        self.socket
+            .send(ClientMessage::ConnectUpdate(ConnectUpdate {
+                items_handling: item_handling.map(|i| i.into()),
+                tags: tags.map(|ts| ts.into_iter().map(|t| t.into()).collect()),
+            }))
+    }
 
     /// Sends a request to the server that can serve one or both of two
     /// purposes:

@@ -97,9 +97,3 @@ impl From<ItemHandling> for ItemsHandlingFlags {
         flags
     }
 }
-
-impl From<ItemHandling> for u8 {
-    fn from(value: ItemHandling) -> u8 {
-        ItemsHandlingFlags::from(value).bits()
-    }
-}
