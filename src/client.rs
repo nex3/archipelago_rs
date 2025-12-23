@@ -616,6 +616,10 @@ impl<S: DeserializeOwned> Client<S> {
                     source: data.source,
                 }),
 
+                Ok(Some(ServerMessage::InvalidPacket(InvalidPacket { text }))) => {
+                    events.push(Event::Error(Error::InvalidPacket(text)))
+                }
+
                 // TODO: dispatch all events
                 Ok(Some(_)) => todo!(),
                 Ok(None) => return events,

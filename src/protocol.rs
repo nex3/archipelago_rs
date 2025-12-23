@@ -413,10 +413,10 @@ pub(crate) struct GameData {
     pub(crate) checksum: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+// We could represent this as an enum of types, but there's no point when all we
+// want to do is extract the error message anyway.
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct InvalidPacket {
-    pub(crate) r#type: String,
-    pub(crate) original_cmd: Option<String>,
     pub(crate) text: String,
 }
 

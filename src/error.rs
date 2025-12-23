@@ -34,6 +34,10 @@ pub enum Error {
     #[error("failed to serialize client message: {0}")]
     Serialize(serde_json::Error),
 
+    /// The Archipelago client sent a package that the server considers invalid.
+    #[error("client sent invalid packet: {0}")]
+    InvalidPacket(String),
+
     /// The Archipelago server violated the network protocol (as the client
     /// understands it).
     #[error("Archipelago server violated the expected protocol: {0}")]
@@ -57,7 +61,7 @@ impl Error {
     /// Returns whether this is a fatal error that indicates that the
     /// Archipelago connection is closed after it's emitted.
     pub fn is_fatal(&self) -> bool {
-        !matches!(self, Error::ProtocolError(_))
+        !matches!(self, Error::ProtocolError(_) | Error::InvalidPacket(_))
     }
 }
 
