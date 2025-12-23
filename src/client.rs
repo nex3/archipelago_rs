@@ -5,9 +5,9 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter, LocatedItem,
-    Location, Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField, Version,
-    protocol::*,
+    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
+    LocatedItem, Location, Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField,
+    Version, protocol::*,
 };
 
 mod death_link_options;
@@ -92,6 +92,11 @@ impl<S: DeserializeOwned> Client<S> {
         };
 
         // TODO: cache data packages and only ask for those that are outdated.
+        //
+        // TODO: also, apparently the data package may just be missing data for
+        // some or all games. Handle this by falling back to a stupider Game
+        // implementation. See
+        // https://discord.com/channels/731205301247803413/731214280439103580/1453152623766012128
         log::debug!("Awaiting DataPackage...");
         socket.send(ClientMessage::GetDataPackage(GetDataPackage {
             games: None,
@@ -498,10 +503,7 @@ impl<S: DeserializeOwned> Client<S> {
         &mut self,
         locations: impl IntoIterator<Item = impl AsLocationId>,
     ) -> Result<(), Error> {
-        let locations = locations
-            .into_iter()
-            .map(|l| l.as_location_id())
-            .collect::<Vec<_>>();
+        let locations = self.verify_local_locations(locations)?;
         self.socket
             .send(ClientMessage::LocationChecks(LocationChecks {
                 locations: locations.clone(),
@@ -527,18 +529,21 @@ impl<S: DeserializeOwned> Client<S> {
     ///   checked. If [CreateAsHint.All] or [CreateAsHint.New] is passed,
     ///   scouted locations will be broadcast as hints without deducting hint
     ///   points from the player.
-    pub fn scout_locations<T: AsLocationId>(
+    pub fn scout_locations(
         &mut self,
-        locations: impl IntoIterator<Item = T>,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
         create_as_hint: CreateAsHint,
     ) -> oneshot::Receiver<Result<Vec<LocatedItem>, Error>> {
         let (sender, receiver) = oneshot::channel();
         match self
-            .socket
-            .send(ClientMessage::LocationScouts(LocationScouts {
-                locations: locations.into_iter().map(|l| l.as_location_id()).collect(),
-                create_as_hint,
-            })) {
+            .verify_local_locations(locations)
+            .and_then(|locations| {
+                self.socket
+                    .send(ClientMessage::LocationScouts(LocationScouts {
+                        locations,
+                        create_as_hint,
+                    }))
+            }) {
             Ok(()) => self.location_scout_senders.push_back(sender),
             // If `send()` returns an error, that means that the receiver was
             // dropped, which is fine to silently ignore.
@@ -621,6 +626,30 @@ impl<S: DeserializeOwned> Client<S> {
         self.socket.send(ClientMessage::SetNotify(SetNotify {
             keys: keys.into_iter().map(|k| k.into()).collect(),
         }))
+    }
+
+    /// Converts [locations] to a vector and verifies that they're valid for the
+    /// current game.
+    fn verify_local_locations(
+        &self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<Vec<i64>, Error> {
+        let game = self.this_game();
+        locations
+            .into_iter()
+            .map(|l| {
+                let id = l.as_location_id();
+                if game.has_location(id) {
+                    Ok(id)
+                } else {
+                    Err(ArgumentError::InvalidLocation {
+                        location: id,
+                        game: game.name(),
+                    }
+                    .into())
+                }
+            })
+            .collect()
     }
 
     // == Event handling

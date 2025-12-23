@@ -30,6 +30,10 @@ pub enum Error {
     #[error("Rust panic during connection process")]
     ConnectionInterrupted,
 
+    /// The caller violated a contract when calling a [Client] method.
+    #[error("{0}")]
+    ArgumentError(#[from] ArgumentError),
+
     /// The Archipelago client provided a message that couldn't be serialized.
     #[error("failed to serialize client message: {0}")]
     Serialize(serde_json::Error),
@@ -110,6 +114,21 @@ impl From<String> for ConnectionError {
             _ => Unknown(value),
         }
     }
+}
+
+/// Errors caused by the user invoking the client incorrectly.
+#[derive(ThisError, Debug)]
+pub enum ArgumentError {
+    /// The given location ID doesn't correspond to a location in the given
+    /// game.
+    #[error("{game} doesn't have a location with ID {location}")]
+    InvalidLocation {
+        /// The non-existent location ID.
+        location: i64,
+
+        /// The name of the game in which the location should appear.
+        game: Ustr,
+    },
 }
 
 /// Errors caused by the Archipelago doing something that violates (our

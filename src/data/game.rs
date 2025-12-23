@@ -126,6 +126,11 @@ impl Game {
         self.locations.iter().copied()
     }
 
+    /// Whether this game defines an item with the given [id].
+    pub fn has_item(&self, id: impl AsItemId) -> bool {
+        self.items_by_id.contains_key(&id.as_item_id())
+    }
+
     /// Returns the item for the given [id] if one is defined in this game.
     pub fn item(&self, id: impl AsItemId) -> Option<Item> {
         self.items_by_id
@@ -174,6 +179,11 @@ impl Game {
         self.locations_by_id
             .get(&id.as_location_id())
             .map(|i| self.locations[*i])
+    }
+
+    /// Whether this game defines a location with the given [id].
+    pub fn has_location(&self, id: impl AsLocationId) -> bool {
+        self.locations_by_id.contains_key(&id.as_location_id())
     }
 
     /// Returns the location with the given [id] or an [Error] if it can't be

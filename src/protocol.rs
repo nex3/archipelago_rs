@@ -1,13 +1,12 @@
 use std::collections::{HashMap, HashSet};
-use std::fmt::Display;
+use std::{fmt::Display, time::SystemTime};
 
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use serde_with::DisplayFromStr;
-use serde_with::serde_as;
-use ustr::{Ustr, UstrSet};
+use serde_with::{DisplayFromStr, TimestampSeconds, serde_as};
+use ustr::{Ustr, UstrMap, UstrSet};
 
 mod bounce;
 mod print;
@@ -247,18 +246,17 @@ pub enum CreateAsHint {
     New = 2,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct UpdateHint {
     pub(crate) player: u64,
     pub(crate) location: i64,
-    pub(crate) status: HintStatus,
+    pub(crate) status: Option<HintStatus>,
 }
 
-#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
-pub(crate) enum HintStatus {
-    HintFound = 0,
-    HintUnspecified = 1,
+#[derive(Debug, Clone, Serialize_repr)]
+#[repr(u8)]
+pub enum HintStatus {
+    HintUnspecified = 0,
     HintNoPriority = 10,
     HintAvoid = 20,
     HintPriority = 30,
@@ -391,6 +389,7 @@ pub(crate) struct SetNotify {
 
 // RESPONSES
 
+#[serde_as]
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RoomInfo {
     pub(crate) version: NetworkVersion,
@@ -401,11 +400,12 @@ pub(crate) struct RoomInfo {
     pub(crate) permissions: PermissionMap,
     pub(crate) hint_cost: u8,
     pub(crate) location_check_points: u64,
-    pub(crate) games: HashSet<String>,
     #[serde(default)]
-    pub(crate) datapackage_checksums: HashMap<String, String>,
+    pub(crate) datapackage_checksums: UstrMap<String>,
     pub(crate) seed_name: String,
-    pub(crate) time: f64,
+    #[serde_as(as = "TimestampSeconds<f64>")]
+    pub(crate) time: SystemTime,
+    // Ignore games because it's redundant with datapackage_checksums.
 }
 
 #[derive(Debug, Clone, Deserialize)]

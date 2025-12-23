@@ -68,7 +68,6 @@ pub(crate) enum BounceData {
     Generic(Option<Value>),
 }
 
-/// A death link, indicating a
 #[serde_as]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeathLink {
