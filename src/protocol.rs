@@ -288,7 +288,7 @@ pub(crate) struct Get {
     pub(crate) keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct Set {
     pub(crate) key: String,
     pub(crate) default: Value,
@@ -296,27 +296,85 @@ pub(crate) struct Set {
     pub(crate) operations: Vec<DataStorageOperation>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Operations that can be applied to keys in the Archipelago server's data
+/// store.
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "operation", content = "value", rename_all = "snake_case")]
-pub(crate) enum DataStorageOperation {
+pub enum DataStorageOperation {
+    /// Replace the value entirely with a new value.
     Replace(Value),
+
+    /// Set the value to the default value specified in [Client::change].
     Default,
-    Add(Value),
-    Mul(Value),
-    Pow(Value),
-    Mod(Value),
+
+    /// Adds the given number to the current value.
+    Add(f64),
+
+    /// Appends the given values to the end of an array.
+    #[serde(rename = "add")]
+    Appends(Vec<Value>),
+
+    /// Multiplies the current value by the given number.
+    #[serde(rename = "mul")]
+    Multiply(f64),
+
+    /// Exponentiates the current value to the given power.
+    #[serde(rename = "pow")]
+    Exponentiate(f64),
+
+    /// Sets the current value to itself modulo the given number.
+    Mod(f64),
+
+    /// Rounds the current value down to the next integer.
     Floor,
+
+    /// Rounds the current value up to the next integer.
     Ceil,
-    Max(Value),
-    Min(Value),
-    And(Value),
-    Or(Value),
-    Xor(Value),
-    LeftShift(Value),
-    RightShift(Value),
+
+    /// Sets the current value to the given number if it's greater than the
+    /// existing value.
+    Max(i64),
+
+    /// Sets the current value to the given number if it's less than the
+    /// existing value.
+    Min(i64),
+
+    /// Sets the current value to the bitwise AND of it and the given number.
+    And(i64),
+
+    /// Sets the current value to the bitwise OR of it and the given number.
+    Or(i64),
+
+    /// Sets the current value to the bitwise XOR of it and the given number.
+    Xor(i64),
+
+    /// Shifts the current value left by the given number of bits.
+    LeftShift(u8),
+
+    /// Shifts the current value right by the given number of bits.
+    RightShift(u8),
+
+    /// If the current value is an array, removes the first instance of the
+    /// given value from it.
     Remove(Value),
-    Pop(Value),
-    Update(Value),
+
+    /// If the current value is an array, removes the element at the given
+    /// index.
+    #[serde(rename = "pop")]
+    RemoveIndex(i64),
+
+    /// If the current value is a map, removes the element with the given key.
+    #[serde(rename = "pop")]
+    RemoveKey(String),
+
+    /// If the current value is an array, adds all elements in the given array
+    /// that aren't already present.
+    #[serde(rename = "update")]
+    Union(Vec<Value>),
+
+    /// If the current value is a map, sets the given keys to their associated
+    /// values.
+    Update(HashMap<String, Value>),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,7 +480,7 @@ pub(crate) struct InvalidPacket {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(crate) struct Retrieved {
-    pub(crate) keys: Value,
+    pub(crate) keys: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,4 +488,5 @@ pub(crate) struct SetReply {
     pub(crate) key: String,
     pub(crate) value: Value,
     pub(crate) original_value: Option<Value>, // Won't be there if key is prefixed with _read
+    pub(crate) slot: u32,
 }

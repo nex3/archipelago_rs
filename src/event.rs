@@ -101,6 +101,24 @@ pub enum Event {
         /// name from within a multiplayer game.
         source: String,
     },
+
+    /// The value associated with a key in the server's data storage was
+    /// updated. This is only emitted after [Client.watch] is called, or if
+    /// [Client.set] or [Client.change] is called with `emit_event` set to
+    /// `true`.
+    KeyChanged {
+        /// The name of the key whose value changed.
+        key: String,
+
+        /// The value before the change. This is `None` for special server keys.
+        old_value: Option<serde_json::Value>,
+
+        /// The value after the change.
+        new_value: serde_json::Value,
+
+        /// The player who updated this key.
+        player: Arc<Player>,
+    },
 }
 
 /// An enum that indicates exactly what in a [Client] was updated.

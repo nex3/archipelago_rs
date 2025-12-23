@@ -7,7 +7,7 @@ mod connection_options;
 mod data;
 mod error;
 mod event;
-pub mod protocol;
+mod protocol;
 mod util;
 
 pub use client::*;
@@ -16,4 +16,5 @@ pub use connection_options::*;
 pub use data::*;
 pub use error::*;
 pub use event::*;
+pub use protocol::*;
 pub use util::*;
