@@ -300,7 +300,6 @@ impl<S: DeserializeOwned> Client<S> {
         self.hint_points_per_check
     }
 
-    // TODO: Update this as the player checks new locations.
     /// The number of hint points the player currently has.
     pub fn hint_points(&self) -> u64 {
         self.hint_points
@@ -488,6 +487,34 @@ impl<S: DeserializeOwned> Client<S> {
             }))
     }
 
+    /// Requests that an [Event::ReceivedItems] be emitted with all the items
+    /// the player has ever received.
+    pub fn sync(&mut self) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Sync)
+    }
+
+    /// Notifies the server that the given [locations] have been checked.
+    pub fn mark_checked(
+        &mut self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<(), Error> {
+        let locations = locations
+            .into_iter()
+            .map(|l| l.as_location_id())
+            .collect::<Vec<_>>();
+        self.socket
+            .send(ClientMessage::LocationChecks(LocationChecks {
+                locations: locations.clone(),
+            }))?;
+
+        for id in locations {
+            if matches!(self.local_locations_checked.insert(id, true), Some(false)) {
+                self.hint_points += self.hint_points_per_check;
+            }
+        }
+        Ok(())
+    }
+
     /// Sends a request to the server that can serve one or both of two
     /// purposes:
     ///
@@ -612,9 +639,6 @@ impl<S: DeserializeOwned> Client<S> {
     /// client will continue to emit additional events after they're emitted if
     /// it's not dropped. You can detect which errors are fatal using
     /// [Error.is_fatal].
-    ///
-    /// Unless this is called (or [Connection.update], which calls this), the
-    /// client will never change state.
     pub fn update(&mut self) -> Vec<Event> {
         let mut events = Vec::<Event>::new();
         loop {
