@@ -552,6 +552,34 @@ impl<S: DeserializeOwned> Client<S> {
         receiver
     }
 
+    /// Updates the status of the given hint on the server.
+    ///
+    /// This allows the player to indicate which hinted items from other worlds
+    /// they care about.
+    pub fn update_hint(
+        &mut self,
+        slot: u32,
+        location: impl AsLocationId,
+        status: HintStatus,
+    ) -> Result<(), Error> {
+        let location = location.as_location_id();
+        let player = self.verify_teammate(slot)?;
+        let game = self.assert_game(player.game());
+        if !game.has_location(location) {
+            return Err(ArgumentError::InvalidLocation {
+                location,
+                game: game.name(),
+            }
+            .into());
+        }
+
+        self.socket.send(ClientMessage::UpdateHint(UpdateHint {
+            player: player.slot(),
+            location,
+            status,
+        }))
+    }
+
     /// Retrieves custom data from the server's data store. The specific
     /// structure of the data is up to the clients that set it.
     ///
@@ -650,6 +678,13 @@ impl<S: DeserializeOwned> Client<S> {
                 }
             })
             .collect()
+    }
+
+    /// Returns the [Player] for [slot] on the current team and verifies that
+    /// it's a valid slot number.
+    fn verify_teammate(&self, slot: u32) -> Result<&Player, Error> {
+        self.teammate(slot)
+            .ok_or(ArgumentError::InvalidSlot(slot).into())
     }
 
     // == Event handling

@@ -129,6 +129,10 @@ pub enum ArgumentError {
         /// The name of the game in which the location should appear.
         game: Ustr,
     },
+
+    /// The given slot number isn't an actual slot in this multiworld.
+    #[error("this multiworld doesn't have a slot {0}")]
+    InvalidSlot(u32),
 }
 
 /// Errors caused by the Archipelago doing something that violates (our

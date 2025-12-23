@@ -248,9 +248,9 @@ pub enum CreateAsHint {
 
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct UpdateHint {
-    pub(crate) player: u64,
+    pub(crate) player: u32,
     pub(crate) location: i64,
-    pub(crate) status: Option<HintStatus>,
+    pub(crate) status: HintStatus,
 }
 
 #[derive(Debug, Clone, Serialize_repr)]
