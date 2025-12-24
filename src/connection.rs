@@ -120,6 +120,22 @@ impl<S: DeserializeOwned + 'static> Connection<S> {
         self.state.state_type()
     }
 
+    /// Returns the [Client] if the connection is currently open.
+    pub fn client(&self) -> Option<&Client<S>> {
+        match &self.state {
+            ConnectionState::Connected(client) => Some(client),
+            _ => None,
+        }
+    }
+
+    /// Returns the mutable [Client] if the connection is currently open.
+    pub fn client_mut(&mut self) -> Option<&mut Client<S>> {
+        match &mut self.state {
+            ConnectionState::Connected(client) => Some(client),
+            _ => None,
+        }
+    }
+
     /// Converts this into an error that's owned by the caller.
     ///
     /// If this is called when this isn't in an error state, it returns
