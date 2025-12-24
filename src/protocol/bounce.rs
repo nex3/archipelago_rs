@@ -79,9 +79,9 @@ pub struct DeathLink {
 
 #[derive(Debug, Clone)]
 pub(crate) struct Bounce {
-    pub(crate) games: Option<Vec<String>>,
-    pub(crate) slots: Option<Vec<String>>,
-    pub(crate) tags: Vec<String>,
+    pub(crate) games: Option<UstrSet>,
+    pub(crate) slots: Option<HashSet<u32>>,
+    pub(crate) tags: Option<UstrSet>,
     pub(crate) data: BounceData,
 }
 
@@ -105,17 +105,15 @@ impl Serialize for Bounce {
 
         match &self.data {
             BounceData::DeathLink(death_link) => {
-                let mut tags = self.tags.clone();
-                if !tags.iter().any(|t| t == "DeathLink") {
-                    tags.push("DeathLink".to_string());
-                }
+                let mut tags = self.tags.clone().unwrap_or_default();
+                tags.insert(*DEATH_LINK_TAG);
 
                 state.serialize_field("tags", &tags)?;
                 state.serialize_field("data", &death_link)?;
             }
             BounceData::Generic(value) => {
-                if !self.tags.is_empty() {
-                    state.serialize_field("tags", &self.tags)?;
+                if let Some(tags) = &self.tags {
+                    state.serialize_field("tags", tags)?;
                 }
                 state.serialize_field("data", &value)?;
             }

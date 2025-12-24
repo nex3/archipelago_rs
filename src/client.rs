@@ -1,17 +1,19 @@
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::{mem, ptr, sync::Arc};
+use std::{mem, ptr, sync::Arc, time::SystemTime};
 
 use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap};
 
 use crate::{
-    protocol::*, ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group,
-    ItemHandling, Iter, LocatedItem, Location, Player, Print, ProtocolError, Socket, UnsizedIter,
-    UpdatedField, Version,
+    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
+    LocatedItem, Location, Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField,
+    Version, protocol::*,
 };
 
+mod bounce_options;
 mod death_link_options;
 
+pub use bounce_options::*;
 pub use death_link_options::*;
 
 /// The version of the Archipelago server that this client supports.
@@ -589,6 +591,35 @@ impl<S: DeserializeOwned> Client<S> {
     /// Braodcasts [text] to all teammates in the multiworld.
     pub fn say(&mut self, text: String) -> Result<(), Error> {
         self.socket.send(ClientMessage::Say(Say { text }))
+    }
+
+    /// Braodcasts [data] to other clients in the multiworld.
+    pub fn bounce(&mut self, data: serde_json::Value, options: BounceOptions) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Bounce(Bounce {
+            games: options.games,
+            slots: options.slots,
+            tags: options.tags,
+            data: BounceData::Generic(Some(data)),
+        }))
+    }
+
+    /// Notifies the player's teammates with death link enabled that the player
+    /// has died.
+    pub fn death_link(&mut self, options: DeathLinkOptions) -> Result<(), Error> {
+        let mut tags = options.tags.unwrap_or_default();
+        tags.insert(*DEATH_LINK_TAG);
+        self.socket.send(ClientMessage::Bounce(Bounce {
+            games: options.games,
+            slots: options.slots,
+            tags: Some(tags),
+            data: BounceData::DeathLink(DeathLink {
+                time: options.time.unwrap_or(SystemTime::now()),
+                cause: options.cause,
+                source: options
+                    .source
+                    .unwrap_or_else(|| self.this_player().alias().to_string()),
+            }),
+        }))
     }
 
     /// Retrieves custom data from the server's data store. The specific
