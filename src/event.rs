@@ -126,7 +126,7 @@ pub enum UpdatedField {
     /// [Client.server_tags] changed.
     ///
     /// This contains the previous tags.
-    ServerTags(HashSet<String>),
+    ServerTags(UstrSet),
 
     /// [Client.release_permission], [Client.collect_permission], and/or
     /// [Client.remaining_permission] changed.

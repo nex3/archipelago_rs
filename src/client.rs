@@ -1,8 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 use std::{mem, ptr, sync::Arc, time::SystemTime};
 
 use serde::de::DeserializeOwned;
-use ustr::{Ustr, UstrMap};
+use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
     ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
@@ -40,7 +40,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     game: *const Game,
     server_version: Version,
     generator_version: Version,
-    server_tags: HashSet<String>,
+    server_tags: UstrSet,
     password_required: bool,
     permissions: PermissionMap,
     hint_cost_percentage: u8,
@@ -117,11 +117,6 @@ impl<S: DeserializeOwned> Client<S> {
         };
 
         // TODO: cache data packages and only ask for those that are outdated.
-        //
-        // TODO: also, apparently the data package may just be missing data for
-        // some or all games. Handle this by falling back to a stupider Game
-        // implementation. See
-        // https://discord.com/channels/731205301247803413/731214280439103580/1453152623766012128
         log::debug!("Awaiting DataPackage...");
         socket.send(ClientMessage::GetDataPackage(GetDataPackage {
             games: None,
@@ -229,11 +224,17 @@ impl<S: DeserializeOwned> Client<S> {
             .into());
         }
 
-        let games = data_package
+        let mut games = data_package
             .games
             .into_iter()
             .map(|(name, data)| (name, Game::hydrate(name, data)))
             .collect::<UstrMap<_>>();
+        for game_name in room_info.games {
+            games
+                .entry(game_name)
+                .or_insert_with(|| Game::no_data_package(game_name));
+        }
+
         let game = games
             // Safety: This is only used for the duration of the get.
             .get(&Ustr::from(&game))
@@ -295,7 +296,7 @@ impl<S: DeserializeOwned> Client<S> {
     }
 
     /// The server's special features or capabilities.
-    pub fn server_tags(&self) -> &HashSet<String> {
+    pub fn server_tags(&self) -> &UstrSet {
         &self.server_tags
     }
 
@@ -880,7 +881,7 @@ impl<S: DeserializeOwned> Client<S> {
                         mem::drop(sender.send(Ok(keys)));
                     } else {
                         events.push(Event::Error(
-                            ProtocolError::ResponseWithoutRequest("Get").into(),
+                            ProtocolError::ResponseWithoutRequest("Retrieved").into(),
                         ));
                     }
                 }
@@ -900,8 +901,22 @@ impl<S: DeserializeOwned> Client<S> {
                     Err(err) => Event::Error(err),
                 }),
 
-                // TODO: dispatch all events
-                Ok(Some(_)) => todo!(),
+                Ok(Some(ServerMessage::RoomInfo(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("RoomInfo").into(),
+                )),
+
+                Ok(Some(ServerMessage::ConnectionRefused(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("ConnectionRefused").into(),
+                )),
+
+                Ok(Some(ServerMessage::Connected(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("Connected").into(),
+                )),
+
+                Ok(Some(ServerMessage::DataPackage(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("DataPackage").into(),
+                )),
+
                 Ok(None) => return events,
                 Err(err) => events.push(Event::Error(err)),
             }
@@ -951,7 +966,7 @@ impl<S: DeserializeOwned> Client<S> {
         if let Some(tags) = update.tags {
             updated.push(UpdatedField::ServerTags(mem::replace(
                 &mut self.server_tags,
-                HashSet::from_iter(tags),
+                tags,
             )))
         }
 

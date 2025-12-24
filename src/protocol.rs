@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::{fmt::Display, time::SystemTime};
 
 use bitflags::bitflags;
@@ -401,12 +401,13 @@ pub(crate) struct SetNotify {
 pub(crate) struct RoomInfo {
     pub(crate) version: NetworkVersion,
     pub(crate) generator_version: NetworkVersion,
-    pub(crate) tags: HashSet<String>,
+    pub(crate) tags: UstrSet,
     #[serde(rename = "password")]
     pub(crate) password_required: bool,
     pub(crate) permissions: PermissionMap,
     pub(crate) hint_cost: u8,
     pub(crate) location_check_points: u64,
+    pub(crate) games: UstrSet,
     // TODO: Cache data packages
     #[serde(default)]
     #[serde(rename = "datapackage_checksums")]
@@ -414,7 +415,6 @@ pub(crate) struct RoomInfo {
     pub(crate) seed_name: String,
     #[serde_as(as = "TimestampSeconds<f64>")]
     pub(crate) time: SystemTime,
-    // Ignore games because it's redundant with datapackage_checksums.
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -460,7 +460,7 @@ pub(crate) struct LocationInfo {
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct RoomUpdate {
     // Copied from RoomInfo
-    pub(crate) tags: Option<Vec<String>>,
+    pub(crate) tags: Option<UstrSet>,
     pub(crate) permissions: Option<PermissionMap>,
     pub(crate) hint_cost: Option<u8>,
     pub(crate) location_check_points: Option<u64>,
