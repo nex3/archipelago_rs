@@ -1,5 +1,9 @@
 use std::{fmt::Debug, iter::FusedIterator};
 
+mod signed_duration;
+
+pub(crate) use signed_duration::*;
+
 /// The trait of iterators returned by this package that don't have a size known
 /// ahead of time. This allows us to keep iterator implementations opaque while
 /// still guaranteeing that they implement various useful traits.

@@ -6,8 +6,8 @@ use ustr::{Ustr, UstrMap};
 
 use crate::{
     ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
-    LocatedItem, Location, Player, Print, ProtocolError, Socket, UnsizedIter, UpdatedField,
-    Version, protocol::*,
+    LocatedItem, Location, Player, Print, ProtocolError, SignedDuration, Socket, UnsizedIter,
+    UpdatedField, Version, protocol::*,
 };
 
 mod bounce_options;
@@ -50,6 +50,11 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     games: UstrMap<Game>,
     slot_data: S,
     groups: Vec<NetworkSlot>,
+
+    /// The difference between the server's notion of the current time and ours.
+    /// We use this to normalize timestamps, under the assumption that they
+    /// should match the server's time.
+    server_skew: SignedDuration,
 
     /// A map from `(team, slot)` to the player with that team and slot.
     players: HashMap<(u32, u32), Arc<Player>>,
@@ -160,6 +165,7 @@ impl<S: DeserializeOwned> Client<S> {
         data_package: DataPackageObject,
         mut connected: Connected<S>,
     ) -> Result<Self, Error> {
+        let server_skew = SignedDuration::difference(SystemTime::now(), room_info.time);
         let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
 
         let teams = connected
@@ -241,6 +247,7 @@ impl<S: DeserializeOwned> Client<S> {
             games,
             slot_data: connected.slot_data,
             groups,
+            server_skew,
             players,
             player_key,
             teams,
@@ -613,7 +620,9 @@ impl<S: DeserializeOwned> Client<S> {
             slots: options.slots,
             tags: Some(tags),
             data: BounceData::DeathLink(DeathLink {
-                time: options.time.unwrap_or(SystemTime::now()),
+                // Subtract the server delay so that we're sending our best
+                // guess of the time on the server when the death occurred.
+                time: options.time.unwrap_or(SystemTime::now()) - self.server_skew,
                 cause: options.cause,
                 source: options
                     .source
@@ -835,7 +844,11 @@ impl<S: DeserializeOwned> Client<S> {
                     games,
                     slots,
                     tags: tags.unwrap(),
-                    time: data.time,
+                    // We assume other clients try to normalize the time to be
+                    // the time on the server when the death occurred, so add
+                    // the server delay to translate that back into the time on
+                    // the client.
+                    time: data.time + self.server_skew,
                     cause: data.cause,
                     source: data.source,
                 }),
