@@ -57,10 +57,7 @@ impl eframe::App for ArchipelagoClient {
             });
             ui.horizontal(|ui| {
                 ui.label("URL");
-                ui.add(
-                    egui::TextEdit::singleline(&mut self.url)
-                        .hint_text("wss://archipelago.gg:12345"),
-                );
+                ui.add(egui::TextEdit::singleline(&mut self.url).hint_text("archipelago.gg:12345"));
             });
             ui.horizontal(|ui| {
                 ui.label("Slot");

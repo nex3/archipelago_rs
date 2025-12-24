@@ -18,6 +18,10 @@ use tungstenite::{Message, WebSocket};
 use crate::error::{Error, ProtocolError};
 use crate::protocol::{ClientMessage, ServerMessage};
 
+/// The default Archipelago port, used for localhost and potentially other
+/// custom servers.
+const DEFAULT_PORT: u16 = 38281;
+
 /// A WebSocket wrapper that receives Archipelago protocol messages from the
 /// server and decodes them.
 pub(crate) struct Socket<S: DeserializeOwned> {
@@ -48,15 +52,7 @@ impl<S: DeserializeOwned> Socket<S> {
             .host()
             .map(|h| h.to_string())
             .ok_or(tungstenite::Error::Url(UrlError::NoHostName))?;
-        let port = request
-            .uri()
-            .port_u16()
-            .or_else(|| match request.uri().scheme_str() {
-                Some("wss") => Some(443),
-                Some("ws") => Some(80),
-                _ => None,
-            })
-            .ok_or(tungstenite::Error::Url(UrlError::UnsupportedUrlScheme))?;
+        let port = request.uri().port_u16().unwrap_or(DEFAULT_PORT);
 
         debug!("Establishing TCP connection to {domain}:{port}...");
         let stream = AsyncTcpStream::connect(format!("{domain}:{port}")).await?;

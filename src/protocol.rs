@@ -180,8 +180,8 @@ pub(crate) struct NetworkSlot {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct Connect {
     pub(crate) password: Option<String>,
-    pub(crate) game: String,
-    pub(crate) name: String,
+    pub(crate) game: Ustr,
+    pub(crate) name: Ustr,
     pub(crate) uuid: String,
     pub(crate) version: NetworkVersion,
     pub(crate) items_handling: ItemsHandlingFlags,
@@ -409,6 +409,7 @@ pub(crate) struct RoomInfo {
     pub(crate) location_check_points: u64,
     // TODO: Cache data packages
     #[serde(default)]
+    #[serde(rename = "datapackage_checksums")]
     pub(crate) _datapackage_checksums: UstrMap<String>,
     pub(crate) seed_name: String,
     #[serde_as(as = "TimestampSeconds<f64>")]
@@ -484,6 +485,7 @@ pub(crate) struct GameData {
     pub(crate) item_name_to_id: HashMap<Ustr, i64>,
     pub(crate) location_name_to_id: HashMap<Ustr, i64>,
     // TODO: Cache data packages
+    #[serde(rename = "checksum")]
     pub(crate) _checksum: String,
 }
 

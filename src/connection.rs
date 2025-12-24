@@ -3,6 +3,7 @@ use std::task::{Context, Poll, Waker};
 
 use serde::de::DeserializeOwned;
 use smol::future::FutureExt;
+use ustr::Ustr;
 
 use crate::{Client, ConnectionOptions, Event, error::*};
 
@@ -33,15 +34,16 @@ impl<S: DeserializeOwned + 'static> Connection<S> {
     /// [game] (which must match the apworld's name) and player [name] (which
     /// must match the slot name that was used to generate this session).
     ///
-    /// Note that [url] must be an absolute WebSocket URL, including the `ws://`
-    /// or `wss://` protocol.
+    /// If the [url] doesn't have a protocol provided, this tries `wss://`
+    /// followed by `ws://`. If it doesn't have a port, it defaults to the
+    /// Archipelago default port 38281.
     ///
     /// See [ConnectOptions] for details about optional arguments and their
     /// defaults.
     pub fn new(
         url: impl Into<String>,
-        game: impl Into<String>,
-        name: impl Into<String>,
+        game: impl Into<Ustr>,
+        name: impl Into<Ustr>,
         options: ConnectionOptions,
     ) -> Self {
         Connection {

@@ -78,13 +78,31 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
 
 impl<S: DeserializeOwned> Client<S> {
     /// Asynchronously initializes a client connection to an Archipelago server.
+    ///
+    /// If the [url] doesn't have a protocol provided, this tries `wss://`
+    /// followed by `ws://`. If it doesn't have a port, it defaults to the
+    /// Archipelago default port 38281.
     pub async fn connect(
         url: String,
-        game: String,
-        name: String,
+        game: Ustr,
+        name: Ustr,
         options: ConnectionOptions,
     ) -> Result<Client<S>, Error> {
-        let mut socket = Socket::<S>::connect(url).await?;
+        let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
+        {
+            Socket::<S>::connect(url).await?
+        } else {
+            match Socket::<S>::connect(format!("wss://{}", url)).await {
+                Ok(socket) => socket,
+                Err(Error::WebSocket(err)) => {
+                    match Socket::<S>::connect(format!("wss://{}", url)).await {
+                        Ok(socket) => socket,
+                        Err(_) => return Err(err.into()),
+                    }
+                }
+                Err(err) => return Err(err),
+            }
+        };
 
         log::debug!("Awaiting RoomInfo...");
         let room_info = match socket.recv_async().await? {
@@ -125,7 +143,7 @@ impl<S: DeserializeOwned> Client<S> {
         version.class = "Version".into();
         socket.send(ClientMessage::Connect(Connect {
             password: options.password,
-            game: game.clone(),
+            game,
             name,
             // Specify something useful here if
             // ArchipelagoMW/Archipelago#998 ever gets sorted out.
@@ -160,7 +178,7 @@ impl<S: DeserializeOwned> Client<S> {
     /// Creates a new client with all available initial information.
     fn new(
         socket: Socket<S>,
-        game: String,
+        game: Ustr,
         room_info: RoomInfo,
         data_package: DataPackageObject,
         mut connected: Connected<S>,
@@ -219,7 +237,7 @@ impl<S: DeserializeOwned> Client<S> {
         let game = games
             // Safety: This is only used for the duration of the get.
             .get(&Ustr::from(&game))
-            .ok_or_else(|| ProtocolError::MissingGameData(game.into()))?;
+            .ok_or(ProtocolError::MissingGameData(game))?;
         let game_ptr = ptr::from_ref(game);
 
         let mut local_locations_checked = HashMap::with_capacity(total_locations);

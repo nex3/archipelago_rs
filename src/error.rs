@@ -7,11 +7,6 @@ use crate::LocatedItem;
 /// connection.
 #[derive(ThisError, Debug)]
 pub enum Error {
-    /// An error indicating that the provided URL doesn't have a protocol
-    /// (`ws://` or `wss://`).
-    #[error("URL \"{0}\" is missing ws:// or wss://")]
-    NoProtocolError(String),
-
     /// An error occurred with the underlying WebSocket connection. If the inner
     /// error is [tungstenite::Error::ConnectionClosed], that means that the
     /// connection closed normally.
