@@ -1,10 +1,6 @@
-use std::io::{self, BufRead};
-use std::time::Duration;
-
-use archipelago_rs::{Client, Connection, ConnectionState};
-use eframe::egui::{self, Color32, RichText, TextEdit};
+use archipelago_rs::{Connection, ConnectionState};
+use eframe::egui::{self, Color32, RichText};
 use simplelog::{ColorChoice, LevelFilter, TermLogger, TerminalMode};
-use smol::LocalExecutor;
 
 fn main() -> Result<(), anyhow::Error> {
     TermLogger::init(
@@ -38,7 +34,7 @@ struct ArchipelagoClient {
 }
 
 impl eframe::App for ArchipelagoClient {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, _: &mut eframe::Frame) {
         self.connection.update();
         egui::CentralPanel::default().show(ctx, |ui| {
             match self.connection.state() {
