@@ -6,8 +6,8 @@ use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
     ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
-    LocatedItem, Location, Player, Print, ProtocolError, SignedDuration, Socket, UnsizedIter,
-    UpdatedField, Version, protocol::*,
+    LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
+    UnsizedIter, UpdatedField, Version, protocol::*,
 };
 
 mod bounce_options;
@@ -68,6 +68,11 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     /// A map from location IDs for this game to booleans indicating whether or
     /// not they've been checked.
     local_locations_checked: HashMap<i64, bool>,
+
+    /// A list of all the items this client has ever received. This is
+    /// overwritten if the server sends a new [ServerMessage::ReceivedItems]
+    /// with index 0.
+    received_items: Vec<ReceivedItem>,
 
     /// Senders for [Client.scout_locations].
     location_scout_senders: VecDeque<oneshot::Sender<Result<Vec<LocatedItem>, Error>>>,
@@ -271,6 +276,7 @@ impl<S: DeserializeOwned> Client<S> {
             player_key,
             teams,
             local_locations_checked,
+            received_items: Default::default(),
             location_scout_senders: Default::default(),
             get_senders: Default::default(),
         })
@@ -500,6 +506,12 @@ impl<S: DeserializeOwned> Client<S> {
             .map(|(id, _)| game.assert_location(*id))
     }
 
+    /// Returns all items that have ever been received by this client. Note that
+    /// this will be empty until the initial [Event::ReceivedItems] is emitted.
+    pub fn received_items(&self) -> &[ReceivedItem] {
+        &self.received_items
+    }
+
     /// Returns the slot data provided by the apworld.
     pub fn slot_data(&self) -> &S {
         &self.slot_data
@@ -520,8 +532,8 @@ impl<S: DeserializeOwned> Client<S> {
             }))
     }
 
-    /// Requests that an [Event::ReceivedItems] be emitted with all the items
-    /// the player has ever received.
+    /// Requests that the server resends all items this client has ever
+    /// received. This will appear as an [Event::ReceivedItems] with index 0.
     pub fn sync(&mut self) -> Result<(), Error> {
         self.socket.send(ClientMessage::Sync)
     }
@@ -792,25 +804,42 @@ impl<S: DeserializeOwned> Client<S> {
                 },
 
                 Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
+                    if index == 0 {
+                        self.received_items.clear();
+                    } else if index > self.received_items.len() {
+                        // If the index of the item we just received doesn't
+                        // match our expectation, follow the client guidelines
+                        // and send a sync message requesting that the server
+                        // send us all items over again.
+                        if let Err(err) = self.sync() {
+                            events.push(Event::Error(err));
+                        }
+                        continue;
+                    }
+
                     let receiver = &self.players[&self.player_key];
                     let receiver_game = self.this_game();
-
                     let items_or_err = items
                         .into_iter()
-                        .map(|network| {
+                        .enumerate()
+                        .map(|(i, network)| {
                             let sender = self.teammate_arc(network.player)?;
                             let sender_game = self.game_or_err(sender.game())?;
-                            LocatedItem::hydrate_with_games(
+                            let item = LocatedItem::hydrate_with_games(
                                 network,
                                 sender,
                                 receiver.clone(),
                                 sender_game,
                                 receiver_game,
-                            )
+                            )?;
+                            Ok(ReceivedItem::new(item, index + i))
                         })
-                        .collect::<Result<Vec<LocatedItem>, Error>>();
+                        .collect::<Result<Vec<ReceivedItem>, Error>>();
                     events.push(match items_or_err {
-                        Ok(items) => Event::ReceivedItems { index, items },
+                        Ok(items) => {
+                            self.received_items.extend(items);
+                            Event::ReceivedItems(index)
+                        }
                         Err(err) => Event::Error(err),
                     })
                 }

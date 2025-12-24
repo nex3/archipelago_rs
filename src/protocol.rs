@@ -446,7 +446,7 @@ pub(crate) struct Connected<S> {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ReceivedItems {
-    pub(crate) index: u64,
+    pub(crate) index: usize,
     pub(crate) items: Vec<NetworkItem>,
 }
 

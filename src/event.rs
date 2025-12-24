@@ -2,7 +2,7 @@ use std::{collections::HashSet, sync::Arc, time::SystemTime};
 
 use ustr::UstrSet;
 
-use crate::{Error, LocatedItem, Location, Player, Print, protocol::Permission};
+use crate::{Error, Location, Player, Print, protocol::Permission};
 
 /// Events from the Archipelago server that clients may want to handle.
 ///
@@ -27,20 +27,13 @@ pub enum Event {
     /// [crate::ItemHandling] you pass in [crate::ConnectionOptions]).
     ///
     /// This is typically the first event this will be emitted (after
-    /// [Connected], if applicable), and will contain all items the player has
-    /// ever received.
-    ReceivedItems {
-        /// The total number of items the connected player has ever been sent.
-        /// See [Synchronizing Items] for details on how to use this to keep the
-        /// player's items in sync with the server.
-        ///
-        /// [Synchronizing Items]: https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
-        index: u64,
-
-        /// The items the player has received. These are guaranteed to always be
-        /// items for the current player.
-        items: Vec<LocatedItem>,
-    },
+    /// [Connected], if applicable). It contains the index of the first
+    /// newly-received item in the global list of all items this client has
+    /// received, available from [Client.received_items].
+    ///
+    /// When the index is 0, that indicates that all the items the player has
+    /// ever received have been re-sent.
+    ReceivedItems(usize),
 
     /// The client has encountered an error.
     ///
