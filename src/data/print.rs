@@ -153,7 +153,7 @@ impl Print {
                         client.teammate_arc(receiving)?,
                         client,
                     )?,
-                    found: found,
+                    found,
                 }
             }
             NetworkPrint::Join {

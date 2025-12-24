@@ -407,8 +407,9 @@ pub(crate) struct RoomInfo {
     pub(crate) permissions: PermissionMap,
     pub(crate) hint_cost: u8,
     pub(crate) location_check_points: u64,
+    // TODO: Cache data packages
     #[serde(default)]
-    pub(crate) datapackage_checksums: UstrMap<String>,
+    pub(crate) _datapackage_checksums: UstrMap<String>,
     pub(crate) seed_name: String,
     #[serde_as(as = "TimestampSeconds<f64>")]
     pub(crate) time: SystemTime,
@@ -482,7 +483,8 @@ pub(crate) struct DataPackageObject {
 pub(crate) struct GameData {
     pub(crate) item_name_to_id: HashMap<Ustr, i64>,
     pub(crate) location_name_to_id: HashMap<Ustr, i64>,
-    pub(crate) checksum: String,
+    // TODO: Cache data packages
+    pub(crate) _checksum: String,
 }
 
 // We could represent this as an enum of types, but there's no point when all we

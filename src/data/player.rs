@@ -65,7 +65,7 @@ impl fmt::Display for Player {
 
 impl PartialEq for Player {
     fn eq(&self, other: &Self) -> bool {
-        self.team == other.team && self.slot == self.slot
+        self.team == other.team && self.slot == other.slot
     }
 }
 

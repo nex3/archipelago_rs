@@ -130,6 +130,8 @@ impl<S: DeserializeOwned + 'static> Connection<S> {
     }
 }
 
+/// The current state of a [Connection].
+#[allow(clippy::large_enum_variant)]
 pub enum ConnectionState<S: DeserializeOwned + 'static> {
     /// A connection has been requested and is still in the process of being
     /// established.

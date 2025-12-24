@@ -108,7 +108,7 @@ impl Game {
     /// The pseudo-game "Archipelago" that's used to represent the location of
     /// items such as those sent by `!getitem`.
     pub fn archipelago() -> &'static Game {
-        &*ARCHIPELAGO
+        &ARCHIPELAGO
     }
 
     /// Returns the game's name.

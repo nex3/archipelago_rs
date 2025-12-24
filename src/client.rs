@@ -173,7 +173,7 @@ impl<S: DeserializeOwned> Client<S> {
             .iter()
             .map(|p| p.team)
             .max()
-            .ok_or_else(|| ProtocolError::EmptyPlayers)?;
+            .ok_or(ProtocolError::EmptyPlayers)?;
 
         let groups = connected
             .slot_info
@@ -182,7 +182,7 @@ impl<S: DeserializeOwned> Client<S> {
             .collect::<Vec<_>>();
         for group in &groups {
             for member in &group.group_members {
-                if !connected.slot_info.contains_key(&member) {
+                if !connected.slot_info.contains_key(member) {
                     return Err(ProtocolError::MissingSlotInfo(*member).into());
                 }
             }
@@ -196,7 +196,7 @@ impl<S: DeserializeOwned> Client<S> {
                     .slot_info
                     .get(&p.slot)
                     .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
-                    .ok_or_else(|| ProtocolError::MissingSlotInfo(p.slot))?
+                    .ok_or(ProtocolError::MissingSlotInfo(p.slot))?
                     .game;
                 let player = Player::hydrate(p, game);
                 Ok(((player.team(), player.slot()), player.into()))
@@ -387,7 +387,7 @@ impl<S: DeserializeOwned> Client<S> {
     pub(crate) fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
         self.players
             .get(&(team, slot))
-            .map(|p| p.clone())
+            .cloned()
             .ok_or_else(|| ProtocolError::MissingPlayer { team, slot }.into())
     }
 
@@ -428,7 +428,7 @@ impl<S: DeserializeOwned> Client<S> {
     /// The groups on the given [team], if such a team exists.
     pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
         if team > self.teams {
-            return None;
+            None
         } else {
             Some(
                 self.groups
@@ -912,7 +912,7 @@ impl<S: DeserializeOwned> Client<S> {
                     .filter_map(|new| {
                         self.players
                             .get(&(new.team, new.slot))
-                            .ok_or_else(|| ProtocolError::MissingPlayer {
+                            .ok_or(ProtocolError::MissingPlayer {
                                 team: new.team,
                                 slot: new.slot,
                             })

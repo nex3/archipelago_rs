@@ -3,7 +3,6 @@ use std::sync::LazyLock;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error, ser::*};
-use serde_json;
 use serde_json::Value;
 use serde_with::{TimestampSeconds, serde_as};
 use ustr::{Ustr, UstrSet};
