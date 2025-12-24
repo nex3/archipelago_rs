@@ -218,12 +218,12 @@ impl From<ItemsHandlingFlags> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct LocationChecks {
     pub(crate) locations: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct LocationScouts {
     pub(crate) locations: Vec<i64>,
     pub(crate) create_as_hint: CreateAsHint,
@@ -262,7 +262,7 @@ pub enum HintStatus {
     HintPriority = 30,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct StatusUpdate {
     pub(crate) status: ClientStatus,
 }
@@ -283,19 +283,19 @@ pub enum ClientStatus {
     Goal = 30,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct Say {
     pub(crate) text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct GetDataPackage {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) games: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct Get {
     pub(crate) keys: Vec<String>,
 }
@@ -389,7 +389,7 @@ pub enum DataStorageOperation {
     Update(HashMap<String, Value>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub(crate) struct SetNotify {
     pub(crate) keys: Vec<String>,
 }
@@ -422,7 +422,7 @@ pub(crate) struct PermissionMap {
     pub(crate) remaining: Permission,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ConnectionRefused {
     #[serde(default)]
     pub(crate) errors: Vec<String>,
@@ -442,13 +442,13 @@ pub(crate) struct Connected<S> {
     pub(crate) hint_points: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct ReceivedItems {
     pub(crate) index: u64,
     pub(crate) items: Vec<NetworkItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct LocationInfo {
     pub(crate) locations: Vec<NetworkItem>,
 }
@@ -468,17 +468,17 @@ pub(crate) struct RoomUpdate {
     pub(crate) checked_locations: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct DataPackage {
     pub(crate) data: DataPackageObject,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct DataPackageObject {
     pub(crate) games: HashMap<Ustr, GameData>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct GameData {
     pub(crate) item_name_to_id: HashMap<Ustr, i64>,
     pub(crate) location_name_to_id: HashMap<Ustr, i64>,
@@ -492,12 +492,12 @@ pub(crate) struct InvalidPacket {
     pub(crate) text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct Retrieved {
     pub(crate) keys: HashMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
 pub(crate) struct SetReply {
     pub(crate) key: String,
     pub(crate) value: Value,
