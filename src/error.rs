@@ -18,7 +18,7 @@ pub enum Error {
     Async(#[from] smol::io::Error),
 
     /// The Archipelago server rejected the connection.
-    #[error("Archipelago refused connection: {}", .0.iter().map(|e| format!("{e:?}")).collect::<Vec<_>>().join(", "))]
+    #[error("Archipelago refused connection: {}", .0.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(", "))]
     ConnectionRefused(Vec<ConnectionError>),
 
     /// A panic occurred during the connection process.
@@ -172,7 +172,7 @@ pub enum ProtocolError {
 
     /// The team and slot numbers for a player don't match anything in the
     /// players list.
-    #[error("Connected packet was missing player on slot {slot}, team {team}")]
+    #[error("missing player on slot {slot}, team {team}")]
     MissingPlayer {
         /// The current player's team number.
         team: u32,

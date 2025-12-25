@@ -62,7 +62,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     /// The key for the current player in [players].
     player_key: (u32, u32),
 
-    /// The number of teams in this multiworld. Also the maximum team ID.
+    /// The number of teams in this multiworld.
     teams: u32,
 
     /// A map from location IDs for this game to booleans indicating whether or
@@ -191,7 +191,8 @@ impl<S: DeserializeOwned> Client<S> {
             .iter()
             .map(|p| p.team)
             .max()
-            .ok_or(ProtocolError::EmptyPlayers)?;
+            .ok_or(ProtocolError::EmptyPlayers)?
+            + 1;
 
         let groups = connected
             .slot_info
@@ -206,7 +207,7 @@ impl<S: DeserializeOwned> Client<S> {
             }
         }
 
-        let players = connected
+        let mut players = connected
             .players
             .into_iter()
             .map(|p| {
@@ -220,6 +221,10 @@ impl<S: DeserializeOwned> Client<S> {
                 Ok(((player.team(), player.slot()), player.into()))
             })
             .collect::<Result<HashMap<(u32, u32), Arc<Player>>, Error>>()?;
+        for team in 0..teams {
+            players.insert((team, 0), Player::archipelago(team).into());
+        }
+
         let player_key = (connected.team, connected.slot);
         if !players.contains_key(&player_key) {
             return Err(ProtocolError::MissingPlayer {
@@ -452,7 +457,7 @@ impl<S: DeserializeOwned> Client<S> {
 
     /// The groups on the given [team], if such a team exists.
     pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
-        if team > self.teams {
+        if team >= self.teams {
             None
         } else {
             Some(
@@ -1057,3 +1062,7 @@ impl<S: DeserializeOwned> Client<S> {
 // Since we treat slot data as immutable anyway, we can guarantee that nothing
 // will change and so it's safe to declare the entire Client as Unpin.
 impl<S> Unpin for Client<S> where S: DeserializeOwned {}
+
+// Safety: This isn't automatically Send due to `*const Game`, but that's just a
+// pointer to data the client owns.
+unsafe impl<S> Send for Client<S> where S: DeserializeOwned + Send {}

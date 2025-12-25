@@ -55,7 +55,17 @@ impl<S: DeserializeOwned> Socket<S> {
         let port = request.uri().port_u16().unwrap_or(DEFAULT_PORT);
 
         debug!("Establishing TCP connection to {domain}:{port}...");
-        let stream = AsyncTcpStream::connect(format!("{domain}:{port}")).await?;
+        let stream = match AsyncTcpStream::connect(format!("{domain}:{port}")).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                // Normalize OS errors into tungstenite's error wrapper.
+                return Err(if let Some(os_err) = err.raw_os_error() {
+                    tungstenite::Error::Io(io::Error::from_raw_os_error(os_err)).into()
+                } else {
+                    err.into()
+                });
+            }
+        };
         let async_stream = Arc::<Async<SyncTcpStream>>::from(stream.clone());
 
         #[cfg(unix)]

@@ -24,12 +24,12 @@ pub(crate) use socket::*;
 #[derive(Default)]
 // TODO: Use TAITs to avoid boxing the connection future and thus avoid
 // `'static` here.
-pub struct Connection<S: DeserializeOwned + 'static = serde_json::Value> {
+pub struct Connection<S: DeserializeOwned + Send + 'static = serde_json::Value> {
     /// The current state of the connection.
     state: ConnectionState<S>,
 }
 
-impl<S: DeserializeOwned + 'static> Connection<S> {
+impl<S: DeserializeOwned + Send + 'static> Connection<S> {
     /// Begins a connection to the Archipelago server at [url], with the given
     /// [game] (which must match the apworld's name) and player [name] (which
     /// must match the slot name that was used to generate this session).
@@ -136,6 +136,17 @@ impl<S: DeserializeOwned + 'static> Connection<S> {
         }
     }
 
+    /// If this client is disconnected, returns the connection error.
+    ///
+    /// If this is called when this isn't in an error state, it returns
+    /// [Error::ClientDisconnected].
+    pub fn err(&self) -> &Error {
+        match &self.state {
+            ConnectionState::Disconnected(err) => err,
+            _ => &Error::ClientDisconnected,
+        }
+    }
+
     /// Converts this into an error that's owned by the caller.
     ///
     /// If this is called when this isn't in an error state, it returns
@@ -185,7 +196,9 @@ impl<S: DeserializeOwned + 'static> Default for ConnectionState<S> {
 
 /// The state of the Archipelago connection during the initial sequence of
 /// protocol handshakes.
-pub struct Connecting<S: DeserializeOwned>(Pin<Box<dyn Future<Output = Result<Client<S>, Error>>>>);
+pub struct Connecting<S: DeserializeOwned>(
+    Pin<Box<dyn Future<Output = Result<Client<S>, Error>> + Send>>,
+);
 
 /// An enumeration of possible types of [ConnectionState]s, without any extra
 /// data attached. Unlike the full [ConnectionState], this implements [Copy] and

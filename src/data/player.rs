@@ -4,7 +4,7 @@ use std::hash::{Hash, Hasher};
 
 use ustr::Ustr;
 
-use crate::protocol::NetworkPlayer;
+use crate::{ARCHIPELAGO_NAME, protocol::NetworkPlayer};
 
 /// A single player (that is, slot) in the multiworld.
 #[derive(Debug, Clone)]
@@ -18,13 +18,24 @@ pub struct Player {
 
 impl Player {
     /// Converts the raw network-level player struct into a [Player].
-    pub(crate) fn hydrate(network: NetworkPlayer, game: Ustr) -> Player {
+    pub(crate) fn hydrate(network: NetworkPlayer, game: Ustr) -> Self {
         Player {
             team: network.team,
             slot: network.slot,
             alias: network.alias,
             name: network.name,
             game,
+        }
+    }
+
+    /// Returns the special reserved player used for Archipelago itself.
+    pub(crate) fn archipelago(team: u32) -> Self {
+        Player {
+            team,
+            slot: 0,
+            alias: "Archipelago".into(),
+            name: *ARCHIPELAGO_NAME,
+            game: *ARCHIPELAGO_NAME,
         }
     }
 
