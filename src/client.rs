@@ -952,7 +952,14 @@ impl<S: DeserializeOwned> Client<S> {
                 )),
 
                 Ok(None) => return events,
-                Err(err) => events.push(Event::Error(err)),
+
+                Err(err) => {
+                    let fatal = err.is_fatal();
+                    events.push(Event::Error(err));
+                    if fatal {
+                        return events;
+                    }
+                },
             }
         }
     }
