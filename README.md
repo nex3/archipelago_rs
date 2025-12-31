@@ -62,3 +62,8 @@ If a caller wants to manage the lifetime more directly, they can instead call
 which they can then call `Client.update()` on to update its status. This may be
 more desirable for tools that only ever intend to connect one time outside of
 the context of a game loop.
+
+[See `text_client`] for a simple example of how to use this client in the
+context of a main loop.
+
+[See `text_client`]: https://github.com/nex3/archipelago_rs/blob/main/examples/text_client.rs

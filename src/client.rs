@@ -959,7 +959,7 @@ impl<S: DeserializeOwned> Client<S> {
                     if fatal {
                         return events;
                     }
-                },
+                }
             }
         }
     }
