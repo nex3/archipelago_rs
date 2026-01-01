@@ -12,7 +12,7 @@ pub struct BounceOptions {
 }
 
 impl BounceOptions {
-    /// Returns a [DeathLinkOptions] with all default option values.
+    /// Creates a [BounceOptions] with all default option values.
     pub fn new() -> Self {
         Default::default()
     }

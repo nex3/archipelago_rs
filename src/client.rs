@@ -27,12 +27,13 @@ const VERSION: NetworkVersion = NetworkVersion {
 /// The client that talks to the Archipelago server using the Archipelago
 /// protocol.
 ///
-/// The generic type [S] is used to deserialize the slot data in the initial
-/// [Connected] message. By default, it will decode the slot data as a dynamic
+/// The generic type `S` is used to deserialize the slot data in the initial
+/// `Connected` message. By default, it will decode the slot data as a dynamic
 /// JSON blob.
 ///
 /// This isn't currently possible to construct directly. Instead, use
-/// [Connection] which represents any possible state a connection can inhabit.
+/// [Connection](crate::Connection) which represents any possible state a
+/// connection can inhabit.
 pub struct Client<S: DeserializeOwned = serde_json::Value> {
     socket: Socket<S>,
 
@@ -84,7 +85,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
 impl<S: DeserializeOwned> Client<S> {
     /// Asynchronously initializes a client connection to an Archipelago server.
     ///
-    /// If the [url] doesn't have a protocol provided, this tries `wss://`
+    /// If the `url` doesn't have a protocol provided, this tries `wss://`
     /// followed by `ws://`. If it doesn't have a port, it defaults to the
     /// Archipelago default port 38281.
     pub async fn connect(
@@ -363,9 +364,10 @@ impl<S: DeserializeOwned> Client<S> {
         self.games.values()
     }
 
-    /// Returns the game with the given [name], if one is in this multiworld.
+    /// Returns the game with the given `name`, if one is in this multiworld.
     ///
-    /// Unlike [games], this will return the special [Game::archipelago] game.
+    /// Unlike [games](Self::games), this will return the special
+    /// [Game::archipelago] game.
     pub fn game(&self, name: impl Into<Ustr>) -> Option<&Game> {
         let name = name.into();
         // Safety: We own the name for the duration of the call.
@@ -379,7 +381,7 @@ impl<S: DeserializeOwned> Client<S> {
         })
     }
 
-    /// Returns the game in this multiworld with the given [name]. Panics if
+    /// Returns the game in this multiworld with the given `name`. Panics if
     /// there's no game with that name.
     pub fn assert_game(&self, name: impl Into<Ustr>) -> &Game {
         let name = name.into();
@@ -405,15 +407,15 @@ impl<S: DeserializeOwned> Client<S> {
         self.players.values().map(|p| p.as_ref())
     }
 
-    /// The player on the given [team] playing the given [slot], if one exists.
+    /// The player on the given `team` playing the given `slot`, if one exists.
     ///
-    /// See also [teammate] to only check the current player's team.
+    /// See also [teammate](Self::teammate) to only check the current player's team.
     pub fn player(&self, team: u32, slot: u32) -> Option<&Player> {
         self.players.get(&(team, slot)).map(|p| p.as_ref())
     }
 
-    /// CLones the Arc for the player on the given [team] playing the given
-    /// [slot].
+    /// CLones the Arc for the player on the given `team` playing the given
+    /// `slot`.
     pub(crate) fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
         self.players
             .get(&(team, slot))
@@ -421,10 +423,11 @@ impl<S: DeserializeOwned> Client<S> {
             .ok_or_else(|| ProtocolError::MissingPlayer { team, slot }.into())
     }
 
-    /// The player on the given [team] playing the given [slot]. Panics if this
+    /// The player on the given `team` playing the given `slot`. Panics if this
     /// player doesn't exist.
     ///
-    /// See also [assert_teammate] to only check the current player's team.
+    /// See also [assert_teammate](Self::assert_teammate) to only check the
+    /// current player's team.
     pub fn assert_player(&self, team: u32, slot: u32) -> &Player {
         self.player(team, slot).unwrap_or_else(|| {
             if self.players.keys().any(|k| k.0 == team) {
@@ -435,7 +438,7 @@ impl<S: DeserializeOwned> Client<S> {
         })
     }
 
-    /// The player playing the given [slot] on the current player's team, if one
+    /// The player playing the given `slot` on the current player's team, if one
     /// exists.
     pub fn teammate(&self, slot: u32) -> Option<&Player> {
         self.player(self.player_key.0, slot)
@@ -447,15 +450,13 @@ impl<S: DeserializeOwned> Client<S> {
         self.player_arc(self.player_key.0, slot)
     }
 
-    /// The player playing the given [slot] on the current player's team. Panics
+    /// The player playing the given `slot` on the current player's team. Panics
     /// if this player doesn't exist.
-    ///
-    /// See also [assert_teammate] to only check the current player's team.
     pub fn assert_teammate(&self, slot: u32) -> &Player {
         self.assert_player(self.player_key.0, slot)
     }
 
-    /// The groups on the given [team], if such a team exists.
+    /// The groups on the given `team`, if such a team exists.
     pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
         if team >= self.teams {
             None
@@ -524,7 +525,8 @@ impl<S: DeserializeOwned> Client<S> {
 
     // == Requests
 
-    /// Updates the current connection settings with new [item_handling] and/or [tags].
+    /// Updates the current connection settings with new `item_handling` and/or
+    /// `tags`.
     pub fn update_connection(
         &mut self,
         item_handling: Option<ItemHandling>,
@@ -543,7 +545,7 @@ impl<S: DeserializeOwned> Client<S> {
         self.socket.send(ClientMessage::Sync)
     }
 
-    /// Notifies the server that the given [locations] have been checked.
+    /// Notifies the server that the given `locations` have been checked.
     pub fn mark_checked(
         &mut self,
         locations: impl IntoIterator<Item = impl AsLocationId>,
@@ -565,10 +567,9 @@ impl<S: DeserializeOwned> Client<S> {
     /// Sends a request to the server that can serve one or both of two
     /// purposes:
     ///
-    /// * Informing the client which items exist at which locations. At some
-    ///   point shortly after this is called, the server will emit an
-    ///   [Event::ScoutedLocations] which includes [LocatedItem]s for each
-    ///   [location].
+    /// * Informing the client which items exist at which location. This
+    ///   information will be made available by the returned
+    ///   [oneshot::Receiver].
     ///
     /// * Informing the server of locations that the client has seen but not
     ///   checked. If [CreateAsHint.All] or [CreateAsHint.New] is passed,
@@ -625,18 +626,18 @@ impl<S: DeserializeOwned> Client<S> {
         }))
     }
 
-    /// Notifies the server that the client has the given [status].
+    /// Notifies the server that the client has the given `status`.
     pub fn set_status(&mut self, status: ClientStatus) -> Result<(), Error> {
         self.socket
             .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
     }
 
-    /// Braodcasts [text] to all teammates in the multiworld.
+    /// Braodcasts `text` to all teammates in the multiworld.
     pub fn say(&mut self, text: String) -> Result<(), Error> {
         self.socket.send(ClientMessage::Say(Say { text }))
     }
 
-    /// Braodcasts [data] to other clients in the multiworld.
+    /// Braodcasts `data` to other clients in the multiworld.
     pub fn bounce(&mut self, data: serde_json::Value, options: BounceOptions) -> Result<(), Error> {
         self.socket.send(ClientMessage::Bounce(Bounce {
             games: options.games,
@@ -691,7 +692,7 @@ impl<S: DeserializeOwned> Client<S> {
     /// Sets custom data in the server's data store. The specific structure of
     /// the data is up to the clients that set it.
     ///
-    /// If [emit_event] is `true`, [update] will eventually emit
+    /// If `emit_event` is `true`, [update](Self::update) will eventually emit
     /// [Event::KeyChanged] for this key, even if it's not otherwise being
     /// watched.
     pub fn set(
@@ -711,10 +712,10 @@ impl<S: DeserializeOwned> Client<S> {
     /// Changes custom data in the server's data store. The specific structure
     /// of the data is up to the clients that set it.
     ///
-    /// This applies each change in [operations] in order. If the key doesn't
-    /// already have a value, [default] is used.
+    /// This applies each change in `operations` in order. If the key doesn't
+    /// already have a value, `default` is used.
     ///
-    /// If [emit_event] is `true`, [update] will eventually emit
+    /// If `emit_event` is `true`, [update](Self::update) will eventually emit
     /// [Event::KeyChanged] for this key, even if it's not otherwise being
     /// watched.
     pub fn change(
@@ -732,8 +733,8 @@ impl<S: DeserializeOwned> Client<S> {
         }))
     }
 
-    /// Watches the given [keys] in the server's data store. Any time the key is
-    /// set (even if it doesn't change), [Event::KeySet] will be emitted.
+    /// Watches the given `keys` in the server's data store. Any time the key is
+    /// set (even if it doesn't change), [Event::KeyChanged] will be emitted.
     pub fn watch(
         &mut self,
         keys: impl IntoIterator<Item = impl Into<String>>,

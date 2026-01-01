@@ -2,7 +2,8 @@ use ustr::{Ustr, UstrSet};
 
 use crate::protocol::ItemsHandlingFlags;
 
-/// A builder that defines options for [Connection::new].
+/// A builder that defines options for
+/// [Connection::new](crate::Connection::new).
 pub struct ConnectionOptions {
     pub(crate) password: Option<String>,
     pub(crate) item_handling: ItemHandling,

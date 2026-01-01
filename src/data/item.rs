@@ -60,7 +60,7 @@ pub trait AsItemId {
     fn as_item_id(&self) -> i64;
 
     /// Returns whether this represents the same Archipelago item as
-    /// [other].
+    /// `other`.
     fn same_item(&self, other: impl AsItemId) -> bool {
         self.as_item_id() == other.as_item_id()
     }

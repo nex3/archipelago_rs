@@ -21,14 +21,16 @@ impl ReceivedItem {
     }
 
     /// The index of this item in the list of all items the connected player has
-    /// ever been sent (which is available as [Client::received_items]). See
+    /// ever been sent (which is available as
+    /// [Client::received_items](crate::Client::received_items)). See
     /// [Synchronizing Items] for details on how to use this to keep the
     /// player's items in sync with the server.
     ///
-    /// This will be 0 for the first item in [Event::ReceivedItems] if the
-    /// server is sending the player's entire inventory again.
-    ///
     /// [Synchronizing Items]: https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#synchronizing-items
+    ///
+    /// This will be 0 for the first item in
+    /// [Event::ReceivedItems](crate::Event::ReceivedItems) if the server is
+    /// sending the player's entire inventory again.
     pub fn index(&self) -> usize {
         self.index
     }
@@ -43,12 +45,12 @@ impl ReceivedItem {
         self.item.location()
     }
 
-    /// The player whose world contains [location].
+    /// The player whose world contains `location`.
     pub fn sender(&self) -> &Player {
         self.item.sender()
     }
 
-    /// The player to whom [item] has been or would be sent.
+    /// The player to whom `item` has been or would be sent.
     pub fn receiver(&self) -> &Player {
         self.item.receiver()
     }

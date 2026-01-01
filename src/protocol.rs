@@ -242,7 +242,8 @@ pub enum CreateAsHint {
     All = 1,
 
     /// Broadcast only locations that haven't already been hinted as hints. The
-    /// [Event::ScoutedLocations] reply will still contain *all* locations.
+    /// return value for [scout_locations](crate::Client::scout_locations) will
+    /// still contain *all* locations.
     New = 2,
 }
 
@@ -316,7 +317,8 @@ pub enum DataStorageOperation {
     /// Replace the value entirely with a new value.
     Replace(Value),
 
-    /// Set the value to the default value specified in [Client::change].
+    /// Set the value to the default value specified in
+    /// [Client::change](crate::Client::change).
     Default,
 
     /// Adds the given number to the current value.

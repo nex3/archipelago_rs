@@ -18,8 +18,8 @@ pub(crate) use socket::*;
 /// Archipelago connection without ever blocking. Because of this, it's safe to
 /// use on a game's main thread and easy to run as part of the core game loop.
 ///
-/// The generic type [S] is used to deserialize the slot data in the initial
-/// [Connected] message. By default, it will decode the slot data as a
+/// The generic type `S` is used to deserialize the slot data in the initial
+/// `Connected` message. By default, it will decode the slot data as a
 /// dynamically-typed JSON blob.
 #[derive(Default)]
 // TODO: Use TAITs to avoid boxing the connection future and thus avoid
@@ -30,15 +30,15 @@ pub struct Connection<S: DeserializeOwned + Send + 'static = serde_json::Value> 
 }
 
 impl<S: DeserializeOwned + Send + 'static> Connection<S> {
-    /// Begins a connection to the Archipelago server at [url], with the given
-    /// [game] (which must match the apworld's name) and player [name] (which
+    /// Begins a connection to the Archipelago server at `url`, with the given
+    /// `game` (which must match the apworld's name) and player `name` (which
     /// must match the slot name that was used to generate this session).
     ///
-    /// If the [url] doesn't have a protocol provided, this tries `wss://`
+    /// If the `url` doesn't have a protocol provided, this tries `wss://`
     /// followed by `ws://`. If it doesn't have a port, it defaults to the
     /// Archipelago default port 38281.
     ///
-    /// See [ConnectOptions] for details about optional arguments and their
+    /// See [ConnectionOptions] for details about optional arguments and their
     /// defaults.
     pub fn new(
         url: impl Into<String>,
@@ -66,7 +66,7 @@ impl<S: DeserializeOwned + Send + 'static> Connection<S> {
     /// This returns any events that were received from the server since the
     /// last time this was called. If the connection encounters a fatal error,
     /// [Event::Error] will be [Error::Elsewhere] and the actual error will be
-    /// available from [state] or [into_err].
+    /// available from [state](Self::state) or [into_err](Self::into_err).
     ///
     /// Most errors are fatal, but some (specifically [Error::ProtocolError]s)
     /// are recoverable. If the connection encounters a recoverable error, it
@@ -211,8 +211,8 @@ pub enum ConnectionStateType {
 }
 
 /// A struct representing a transition from one state to another. This
-/// guarantees that [old] and [new] are always different, and that [old] will
-/// always be an earlier state than [new].
+/// guarantees that `old` and `new` are always different, and that `old` will
+/// always be an earlier state than `new`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConnectionStateTransition {
     pub old: ConnectionStateType,
@@ -221,7 +221,7 @@ pub struct ConnectionStateTransition {
 
 /// If [future] is complete, returns its value. Otherwise, returns `None`.
 ///
-/// If this returns a value, [future] must not be polled again afterwards.
+/// If this returns a value, `future` must not be polled again afterwards.
 fn try_future<T, F: FutureExt<Output = T> + Unpin>(future: &mut F) -> Option<T> {
     let mut context = Context::from_waker(Waker::noop());
     match future.poll(&mut context) {

@@ -226,7 +226,7 @@ impl Print {
     }
 
     /// A utility method that returns a message of an unknown type that just
-    /// contains the given unformatted [text].
+    /// contains the given unformatted `text`.
     pub fn message(text: String) -> Print {
         Print::Unknown {
             data: vec![RichText::Text(text)],

@@ -49,8 +49,9 @@ impl Location {
         *SERVER
     }
 
-    /// If [id] represents a well-known universal location like [cheat_console]
-    /// or [server], returns that location.
+    /// If `id` represents a well-known universal location like
+    /// [cheat_console](Self::cheat_console) or [server](Self::server), returns
+    /// that location.
     pub fn well_known(id: i64) -> Option<Location> {
         match id {
             -1 => Some(Self::cheat_console()),
@@ -101,7 +102,7 @@ pub trait AsLocationId {
     fn as_location_id(&self) -> i64;
 
     /// Returns whether this represents the same Archipelago location as
-    /// [other].
+    /// `other`.
     fn same_location(&self, other: impl AsLocationId) -> bool {
         self.as_location_id() == other.as_location_id()
     }

@@ -167,7 +167,7 @@ impl Game {
         }
     }
 
-    /// Whether this game defines an item with the given [id].
+    /// Whether this game defines an item with the given `id`.
     ///
     /// For games without data packages, this always returns true.
     pub fn has_item(&self, id: impl AsItemId) -> bool {
@@ -177,7 +177,7 @@ impl Game {
         }
     }
 
-    /// Returns the item for the given [id] if one is defined in this game.
+    /// Returns the item for the given `id` if one is defined in this game.
     pub fn item(&self, id: impl AsItemId) -> Option<Item> {
         let id = id.as_item_id();
         match &self.0 {
@@ -188,7 +188,7 @@ impl Game {
         }
     }
 
-    /// Returns the item with the given [id] or an [Error] if it can't be found.
+    /// Returns the item with the given `id` or an [Error] if it can't be found.
     pub(crate) fn item_or_err(&self, id: impl AsItemId) -> Result<Item, Error> {
         let id = id.as_item_id();
         self.item(id).ok_or(
@@ -200,7 +200,7 @@ impl Game {
         )
     }
 
-    /// Returns the item for the given [id]. Panics if there's no item with this
+    /// Returns the item for the given `id`. Panics if there's no item with this
     /// ID.
     pub fn assert_item(&self, id: impl AsItemId) -> Item {
         let id = id.as_item_id();
@@ -208,7 +208,7 @@ impl Game {
             .unwrap_or_else(|| panic!("{} doesn't contain an item with ID {}", self.name(), id))
     }
 
-    /// Returns the item with the given [name] if one is defined in this game.
+    /// Returns the item with the given `name` if one is defined in this game.
     pub fn item_by_name(&self, name: impl Into<Ustr>) -> Option<Item> {
         match &self.0 {
             GameType::NoDataPackage(_) => None,
@@ -220,7 +220,7 @@ impl Game {
         }
     }
 
-    /// Returns the item with the given [name]. Panics if there's no item with
+    /// Returns the item with the given `name`. Panics if there's no item with
     /// this name.
     pub fn assert_item_by_name(&self, name: impl Into<Ustr>) -> Item {
         let name = name.into();
@@ -228,7 +228,7 @@ impl Game {
             .unwrap_or_else(|| panic!("{} doesn't contain an item named \"{}\"", self.name(), name))
     }
 
-    /// Whether this game defines an location with the given [id].
+    /// Whether this game defines an location with the given `id`.
     ///
     /// For games without data packages, this always returns true.
     pub fn has_location(&self, id: impl AsLocationId) -> bool {
@@ -238,7 +238,7 @@ impl Game {
         }
     }
 
-    /// Returns the location for the given [id] if one is defined in this game.
+    /// Returns the location for the given `id` if one is defined in this game.
     pub fn location(&self, id: impl AsLocationId) -> Option<Location> {
         let id = id.as_location_id();
         match &self.0 {
@@ -253,7 +253,7 @@ impl Game {
         }
     }
 
-    /// Returns the location with the given [id] or an [Error] if it can't be found.
+    /// Returns the location with the given `id` or an [Error] if it can't be found.
     pub(crate) fn location_or_err(&self, id: impl AsLocationId) -> Result<Location, Error> {
         let id = id.as_location_id();
         self.location(id).ok_or(
@@ -265,7 +265,7 @@ impl Game {
         )
     }
 
-    /// Returns the location for the given [id]. Panics if there's no location with this
+    /// Returns the location for the given `id`. Panics if there's no location with this
     /// ID.
     pub fn assert_location(&self, id: impl AsLocationId) -> Location {
         let id = id.as_location_id();
@@ -273,7 +273,7 @@ impl Game {
             .unwrap_or_else(|| panic!("{} doesn't contain an location with ID {}", self.name(), id))
     }
 
-    /// Returns the location with the given [name] if one is defined in this game.
+    /// Returns the location with the given `name` if one is defined in this game.
     pub fn location_by_name(&self, name: impl Into<Ustr>) -> Option<Location> {
         match &self.0 {
             GameType::NoDataPackage(_) => None,
@@ -285,7 +285,7 @@ impl Game {
         }
     }
 
-    /// Returns the location with the given [name]. Panics if there's no location with
+    /// Returns the location with the given `name`. Panics if there's no location with
     /// this name.
     pub fn assert_location_by_name(&self, name: impl Into<Ustr>) -> Location {
         let name = name.into();
@@ -298,7 +298,7 @@ impl Game {
         })
     }
 
-    /// Returns an [Error] if [id] isn't a location in this game.
+    /// Returns an [Error] if `id` isn't a location in this game.
     pub(crate) fn verify_location(&self, id: impl AsLocationId) -> Result<(), Error> {
         match &self.0 {
             GameType::NoDataPackage(_) => Ok(()),

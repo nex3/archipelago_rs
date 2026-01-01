@@ -25,7 +25,8 @@ pub enum Error {
     #[error("Rust panic during connection process")]
     ConnectionInterrupted,
 
-    /// The caller violated a contract when calling a [Client] method.
+    /// The caller violated a contract when calling a [Client](crate::Client)
+    /// method.
     #[error("{0}")]
     ArgumentError(#[from] ArgumentError),
 
@@ -43,15 +44,17 @@ pub enum Error {
     ProtocolError(#[from] ProtocolError),
 
     /// The client has manually disconnected. This is used when
-    /// [Connection::into_err] is called when there was no error, and it's also
-    /// used as the error value of [Connection::default].
+    /// [Connection::into_err](crate::Connection::into_err) is called when there
+    /// was no error, and it's also used as the error value of
+    /// [Connection::default](crate::Connection::default).
     #[error("the client ended the connection")]
     ClientDisconnected,
 
     /// A placeholder used when the full error is available elsewhere. Used when
     /// a future is canceled because the underlying connection failed or in the
-    /// events returned by [Connection::update] because the actual error is
-    /// stored in [Connection::state].
+    /// events returned by [Connection::update](crate::Connection::update)
+    /// because the actual error is stored in
+    /// [Connection::state](crate::Connection::state).
     #[error("a full error is available elsewhere")]
     Elsewhere,
 }

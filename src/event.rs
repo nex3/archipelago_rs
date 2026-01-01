@@ -27,9 +27,9 @@ pub enum Event {
     /// [crate::ItemHandling] you pass in [crate::ConnectionOptions]).
     ///
     /// This is typically the first event this will be emitted (after
-    /// [Connected], if applicable). It contains the index of the first
-    /// newly-received item in the global list of all items this client has
-    /// received, available from [Client.received_items].
+    /// [Connected](Event::Connected), if applicable). It contains the index of
+    /// the first newly-received item in the global list of all items this
+    /// client has received, available from [Client.received_items].
     ///
     /// When the index is 0, that indicates that all the items the player has
     /// ever received have been re-sent.
@@ -114,7 +114,8 @@ pub enum Event {
     },
 }
 
-/// An enum that indicates exactly what in a [Client] was updated.
+/// An enum that indicates exactly what in a [Client](crate::Client) was
+/// updated.
 pub enum UpdatedField {
     /// [Client.server_tags] changed.
     ///

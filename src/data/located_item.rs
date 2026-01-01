@@ -65,12 +65,12 @@ impl LocatedItem {
         self.location
     }
 
-    /// The player whose world contains [location].
+    /// The player whose world contains `location`.
     pub fn sender(&self) -> &Player {
         self.sender.as_ref()
     }
 
-    /// The player to whom [item] has been or would be sent.
+    /// The player to whom `item` has been or would be sent.
     pub fn receiver(&self) -> &Player {
         self.receiver.as_ref()
     }
