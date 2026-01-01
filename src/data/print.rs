@@ -228,9 +228,7 @@ impl Print {
     /// A utility method that returns a message of an unknown type that just
     /// contains the given unformatted `text`.
     pub fn message(text: String) -> Print {
-        Print::Unknown {
-            data: vec![RichText::Text(text)],
-        }
+        text.into()
     }
 
     /// Returns the data field for any Print.
@@ -254,6 +252,30 @@ impl Print {
             Countdown { data, .. } => data,
             Unknown { data, .. } => data,
         }
+    }
+}
+
+impl From<String> for Print {
+    fn from(value: String) -> Print {
+        vec![value.into()].into()
+    }
+}
+
+impl From<&str> for Print {
+    fn from(value: &str) -> Print {
+        value.to_string().into()
+    }
+}
+
+impl From<RichText> for Print {
+    fn from(value: RichText) -> Print {
+        vec![value].into()
+    }
+}
+
+impl From<Vec<RichText>> for Print {
+    fn from(data: Vec<RichText>) -> Print {
+        Print::Unknown { data }
     }
 }
 
@@ -352,6 +374,18 @@ impl RichText {
             NetworkText::Color { text, color } => RichText::Color { text, color },
             NetworkText::Text { text } => RichText::Text(text),
         })
+    }
+}
+
+impl From<String> for RichText {
+    fn from(value: String) -> RichText {
+        RichText::Text(value)
+    }
+}
+
+impl From<&str> for RichText {
+    fn from(value: &str) -> RichText {
+        value.to_string().into()
     }
 }
 
