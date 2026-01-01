@@ -136,6 +136,21 @@ impl<S: DeserializeOwned + Send + 'static> Connection<S> {
         }
     }
 
+    /// Whether this is currently in [ConnectionStateType::Connecting].
+    pub fn is_connecting(&self) -> bool {
+        self.state_type() == ConnectionStateType::Connecting
+    }
+
+    /// Whether this is currently in [ConnectionStateType::Connected].
+    pub fn is_connected(&self) -> bool {
+        self.state_type() == ConnectionStateType::Connected
+    }
+
+    /// Whether this is currently in [ConnectionStateType::Disconnected].
+    pub fn is_disconnected(&self) -> bool {
+        self.state_type() == ConnectionStateType::Disconnected
+    }
+
     /// If this client is disconnected, returns the connection error.
     ///
     /// If this is called when this isn't in an error state, it returns
