@@ -14,8 +14,6 @@ tungstenite = { version = "0.28", features = ["native-tls"] }
 bitflags = { version = "2.10.0" }
 serde_with = "3.16.1"
 log = "0.4.29"
-mio = { version = "1.1.1", features = ["net", "os-poll"] }
-libc = "0.2.178"
 native-tls = "0.2.14"
 smol = "2.0.2"
 ustr = { version = "1.1.0", features = ["serde"] }

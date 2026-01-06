@@ -141,7 +141,7 @@ pub enum ProtocolError {
     ///
     /// This could either mean that that the message was syntactically invalid,
     /// or (more likely) that it doesn't match the JSON structure the client
-    /// expectes.
+    /// expects.
     #[error("failed to deserialize server message: {error}\n{json}")]
     Deserialize {
         /// The JSON-encoded value of the message we received.

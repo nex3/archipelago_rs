@@ -16,7 +16,7 @@ pub enum Event {
 
     /// An event indicating that some information about the room or the current
     /// connection was updated by the server. It contains all the updates that
-    /// ocurred.
+    /// occurred.
     Updated(Vec<UpdatedField>),
 
     /// A message for the client to display to the player.

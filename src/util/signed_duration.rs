@@ -1,7 +1,7 @@
 use std::ops::{Add, Sub};
 use std::time::{Duration, SystemTime};
 
-/// A wrapper around [Duration] taht supports both positive and negative
+/// A wrapper around [Duration] that supports both positive and negative
 /// durations.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum SignedDuration {

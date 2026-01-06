@@ -52,7 +52,7 @@ session (or, if it disconnects, another client will reconnect to the same room).
 There are two primary entrypoints for the library. The `Connection` struct is
 recommended for users who connect to Archipelago as part of a running game,
 which may disconnect and reconnect over time. It encapsulates the lifetime of a
-conncection, including the time when it's still in the process of connecting and
+connection, including the time when it's still in the process of connecting and
 the time after it's disconnected. This makes it easy for the caller to display
 the current status and change its behavior based on whether a connection exists
 or not.

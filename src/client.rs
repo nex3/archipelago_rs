@@ -172,7 +172,7 @@ impl<S: DeserializeOwned> Client<S> {
         };
 
         let client = Client::new(socket, game, room_info, data_package, connected)?;
-        log::info!("Archipelago connection initialized succesfully");
+        log::info!("Archipelago connection initialized successfully");
         Ok(client)
     }
 
@@ -414,7 +414,7 @@ impl<S: DeserializeOwned> Client<S> {
         self.players.get(&(team, slot)).map(|p| p.as_ref())
     }
 
-    /// CLones the Arc for the player on the given `team` playing the given
+    /// Clones the Arc for the player on the given `team` playing the given
     /// `slot`.
     pub(crate) fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
         self.players
@@ -632,12 +632,12 @@ impl<S: DeserializeOwned> Client<S> {
             .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
     }
 
-    /// Braodcasts `text` to all teammates in the multiworld.
+    /// Broadcasts `text` to all teammates in the multiworld.
     pub fn say(&mut self, text: String) -> Result<(), Error> {
         self.socket.send(ClientMessage::Say(Say { text }))
     }
 
-    /// Braodcasts `data` to other clients in the multiworld.
+    /// Broadcasts `data` to other clients in the multiworld.
     pub fn bounce(&mut self, data: serde_json::Value, options: BounceOptions) -> Result<(), Error> {
         self.socket.send(ClientMessage::Bounce(Bounce {
             games: options.games,
