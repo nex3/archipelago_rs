@@ -508,5 +508,6 @@ pub(crate) struct SetReply {
     pub(crate) key: String,
     pub(crate) value: Value,
     pub(crate) original_value: Option<Value>, // Won't be there if key is prefixed with _read
-    pub(crate) slot: u32,
+    // See https://github.com/ArchipelagoMW/Archipelago/issues/5829
+    pub(crate) slot: Option<u32>,
 }

@@ -109,8 +109,9 @@ pub enum Event {
         /// The value after the change.
         new_value: serde_json::Value,
 
-        /// The player who updated this key.
-        player: Arc<Player>,
+        /// The player who updated this key. This is omitted for the special
+        /// `_read_hints_...` and `_read_client_status_...` keys.
+        player: Option<Arc<Player>>,
     },
 }
 

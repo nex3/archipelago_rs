@@ -7,12 +7,12 @@ use std::{collections::VecDeque, io, net::TcpStream as SyncTcpStream, sync::Arc}
 use log::*;
 use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector, TlsStream};
 use serde::de::DeserializeOwned;
-use smol::{net::TcpStream as AsyncTcpStream, Async};
+use smol::{Async, net::TcpStream as AsyncTcpStream};
+use tungstenite::HandshakeError as WsHandshakeError;
 use tungstenite::client::IntoClientRequest;
 use tungstenite::error::{TlsError, UrlError};
 use tungstenite::handshake::client::ClientHandshake;
 use tungstenite::stream::{MaybeTlsStream, Mode};
-use tungstenite::HandshakeError as WsHandshakeError;
 use tungstenite::{Message, WebSocket};
 
 use crate::error::{Error, ProtocolError};

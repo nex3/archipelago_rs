@@ -925,13 +925,25 @@ impl<S: DeserializeOwned> Client<S> {
                     key,
                     value,
                     original_value,
-                    slot,
+                    slot: None,
+                }))) => events.push(Event::KeyChanged {
+                    key,
+                    old_value: original_value,
+                    new_value: value,
+                    player: None,
+                }),
+
+                Ok(Some(ServerMessage::SetReply(SetReply {
+                    key,
+                    value,
+                    original_value,
+                    slot: Some(slot),
                 }))) => events.push(match self.teammate_arc(slot) {
                     Ok(player) => Event::KeyChanged {
                         key,
                         old_value: original_value,
                         new_value: value,
-                        player,
+                        player: Some(player),
                     },
                     Err(err) => Event::Error(err),
                 }),
