@@ -5,14 +5,14 @@ use std::os::windows::io::AsSocket;
 use std::{collections::VecDeque, io, net::TcpStream as SyncTcpStream, sync::Arc};
 
 use log::*;
-use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector};
+use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector, TlsStream};
 use serde::de::DeserializeOwned;
-use smol::{Async, net::TcpStream as AsyncTcpStream};
-use tungstenite::HandshakeError as WsHandshakeError;
+use smol::{net::TcpStream as AsyncTcpStream, Async};
 use tungstenite::client::IntoClientRequest;
 use tungstenite::error::{TlsError, UrlError};
 use tungstenite::handshake::client::ClientHandshake;
 use tungstenite::stream::{MaybeTlsStream, Mode};
+use tungstenite::HandshakeError as WsHandshakeError;
 use tungstenite::{Message, WebSocket};
 
 use crate::error::{Error, ProtocolError};
@@ -53,25 +53,7 @@ impl<S: DeserializeOwned> Socket<S> {
             .map(|h| h.to_string())
             .ok_or(tungstenite::Error::Url(UrlError::NoHostName))?;
         let port = request.uri().port_u16().unwrap_or(DEFAULT_PORT);
-
-        debug!("Establishing TCP connection to {domain}:{port}...");
-        let stream = match AsyncTcpStream::connect(format!("{domain}:{port}")).await {
-            Ok(stream) => stream,
-            Err(err) => {
-                // Normalize OS errors into tungstenite's error wrapper.
-                return Err(if let Some(os_err) = err.raw_os_error() {
-                    tungstenite::Error::Io(io::Error::from_raw_os_error(os_err)).into()
-                } else {
-                    err.into()
-                });
-            }
-        };
-        let async_stream = Arc::<Async<SyncTcpStream>>::from(stream.clone());
-
-        #[cfg(unix)]
-        let stream = SyncTcpStream::from(stream.as_fd().try_clone_to_owned()?);
-        #[cfg(windows)]
-        let stream = SyncTcpStream::from(stream.as_socket().try_clone_to_owned()?);
+        let (stream, mut async_stream) = Self::connect_tcp(&domain, port).await?;
 
         async_stream.writable().await?;
         let maybe_tls_stream = match tungstenite::client::uri_mode(request.uri())? {
@@ -81,25 +63,21 @@ impl<S: DeserializeOwned> Socket<S> {
             }
             Mode::Tls => {
                 debug!("Upgrading to TLS...");
-                let connector = TlsConnector::new()
-                    .map_err(|e| tungstenite::Error::Tls(TlsError::Native(Box::new(e))))?;
-                let mut handshake = connector.connect(domain.as_str(), stream);
-                loop {
-                    match handshake {
-                        Ok(socket) => {
-                            debug!("Upgrading to WebSocket...");
-                            break MaybeTlsStream::NativeTls(socket);
-                        }
-                        Err(TlsHandshakeError::Failure(err)) => {
-                            return Err(
-                                tungstenite::Error::Tls(TlsError::Native(Box::new(err))).into()
-                            );
-                        }
-                        Err(TlsHandshakeError::WouldBlock(new_handshake)) => {
-                            async_stream.readable().await?;
-                            handshake = new_handshake.handshake();
-                        }
+                match Self::try_tls(async_stream.as_ref(), stream, domain.as_str()).await {
+                    Ok(stream) => {
+                        debug!("Upgrading to WebSocket...");
+                        MaybeTlsStream::NativeTls(stream)
                     }
+                    Err(Error::WebSocket(tungstenite::Error::Tls(err))) => {
+                        debug!(
+                            "Upgrading to TLS failed ({err}), attempting plain TCP connection..."
+                        );
+                        let (stream, async_stream_) = Self::connect_tcp(&domain, port).await?;
+                        async_stream = async_stream_;
+                        debug!("Upgrading to WebSocket...");
+                        MaybeTlsStream::Plain(stream)
+                    }
+                    Err(err) => return Err(err),
                 }
             }
         };
@@ -125,6 +103,64 @@ impl<S: DeserializeOwned> Socket<S> {
                     async_stream.readable().await?;
                 }
                 Err(WsHandshakeError::Failure(err)) => return Err(err.into()),
+            }
+        }
+    }
+
+    /// Initializes a new TCP connection to the given [domain] and [port].
+    ///
+    /// Returns both the [TcpStream] to use to communicate with the server and
+    /// an [Arc<Async<SyncTcpStream>>] which can be used to wait until the
+    /// [TcpStream] is writable.
+    async fn connect_tcp(
+        domain: impl AsRef<str>,
+        port: u16,
+    ) -> Result<(SyncTcpStream, Arc<Async<SyncTcpStream>>), Error> {
+        let domain = domain.as_ref();
+        debug!("Establishing TCP connection to {domain}:{port}...");
+        let stream = match AsyncTcpStream::connect(format!("{domain}:{port}")).await {
+            Ok(stream) => stream,
+            Err(err) => {
+                // Normalize OS errors into tungstenite's error wrapper.
+                return Err(if let Some(os_err) = err.raw_os_error() {
+                    tungstenite::Error::Io(io::Error::from_raw_os_error(os_err)).into()
+                } else {
+                    err.into()
+                });
+            }
+        };
+        let async_stream = Arc::<Async<SyncTcpStream>>::from(stream.clone());
+
+        #[cfg(unix)]
+        let stream = SyncTcpStream::from(stream.as_fd().try_clone_to_owned()?);
+        #[cfg(windows)]
+        let stream = SyncTcpStream::from(stream.as_socket().try_clone_to_owned()?);
+
+        Ok((stream, async_stream))
+    }
+
+    /// Attempts to upgrade `stream` to TLS.
+    async fn try_tls(
+        async_stream: &Async<SyncTcpStream>,
+        stream: SyncTcpStream,
+        domain: impl AsRef<str>,
+    ) -> Result<TlsStream<SyncTcpStream>, Error> {
+        let connector = TlsConnector::new()
+            .map_err(|e| tungstenite::Error::Tls(TlsError::Native(Box::new(e))))?;
+        let mut handshake = connector.connect(domain.as_ref(), stream);
+        loop {
+            match handshake {
+                Ok(socket) => {
+                    debug!("Upgrading to WebSocket...");
+                    return Ok(socket);
+                }
+                Err(TlsHandshakeError::Failure(err)) => {
+                    return Err(tungstenite::Error::Tls(TlsError::Native(Box::new(err))).into());
+                }
+                Err(TlsHandshakeError::WouldBlock(new_handshake)) => {
+                    async_stream.readable().await?;
+                    handshake = new_handshake.handshake();
+                }
             }
         }
     }
