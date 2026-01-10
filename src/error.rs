@@ -139,7 +139,7 @@ pub enum ArgumentError {
 pub enum ProtocolError {
     /// The server sent a message that couldn't be deserialized.
     ///
-    /// This could either mean that that the message was syntactically invalid,
+    /// This could either mean that the message was syntactically invalid,
     /// or (more likely) that it doesn't match the JSON structure the client
     /// expects.
     #[error("failed to deserialize server message: {error}\n{json}")]
