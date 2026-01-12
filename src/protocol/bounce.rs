@@ -21,7 +21,7 @@ struct InternalBounced {
     pub slots: Option<Vec<i64>>,
     #[serde(default)]
     pub tags: Vec<String>,
-    pub data: Value,
+    pub data: Option<Value>,
 }
 
 // Deserialize Bounced based on its tags.
@@ -36,9 +36,12 @@ impl<'de> Deserialize<'de> for Bounced {
                 games: internal.games,
                 slots: internal.slots,
                 tags: internal.tags,
-                data: BounceData::DeathLink(match serde_json::from_value(internal.data) {
-                    Ok(data) => data,
-                    Err(err) => return Err(D::Error::custom(err)),
+                data: BounceData::DeathLink(match internal.data {
+                    None => return Err(D::Error::custom("DeathLink Bounce should have data, but was None.")),
+                    Some(data) => match serde_json::from_value(data) {
+                        Ok(data) => data,
+                        Err(err) => return Err(D::Error::custom(err)),
+                    },
                 }),
             })
         } else {
@@ -55,7 +58,7 @@ impl<'de> Deserialize<'de> for Bounced {
 #[derive(Debug, Clone)]
 pub enum BounceData {
     DeathLink(DeathLink),
-    Generic(Value),
+    Generic(Option<Value>),
 }
 
 #[serde_as]

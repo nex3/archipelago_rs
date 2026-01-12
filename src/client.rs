@@ -269,7 +269,7 @@ where
         games: Option<Vec<String>>,
         slots: Option<Vec<String>>,
         tags: Vec<String>,
-        data: serde_json::Value,
+        data: Option<serde_json::Value>,
     ) -> Result<(), ArchipelagoError> {
         self.send(ClientMessage::Bounce(Bounce {
             games,
@@ -423,7 +423,7 @@ impl ArchipelagoClientSender {
         games: Option<Vec<String>>,
         slots: Option<Vec<String>>,
         tags: Vec<String>,
-        data: serde_json::Value,
+        data: Option<serde_json::Value>,
     ) -> Result<(), ArchipelagoError> {
         self.send(ClientMessage::Bounce(Bounce {
             games,
