@@ -5,9 +5,9 @@ use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
-    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
-    LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
-    UnsizedIter, UpdatedField, Version, protocol::*,
+    protocol::*, ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling,
+    Iter, LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration,
+    Socket, UnsizedIter, UpdatedField, Version,
 };
 
 mod bounce_options;
@@ -598,6 +598,29 @@ impl<S: DeserializeOwned> Client<S> {
         receiver
     }
 
+    /// Create hints for the specified locations on the server
+    ///
+    /// * Non-existing locations for your own slot will be skipped
+    /// * Hints that already exist will also be skipped and not updated
+    pub fn create_hints(
+        &mut self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+        slot: u32,
+        status: HintStatus,
+    ) -> Result<(), Error> {
+        self.verify_game_locations(
+            self.assert_game(self.verify_teammate(slot)?.game()),
+            locations,
+        )
+        .and_then(|locations| {
+            self.socket.send(ClientMessage::CreateHints(CreateHints {
+                locations,
+                player: slot,
+                status,
+            }))
+        })
+    }
+
     /// Updates the status of the given hint on the server.
     ///
     /// This allows the player to indicate which hinted items from other worlds
@@ -750,7 +773,16 @@ impl<S: DeserializeOwned> Client<S> {
         &self,
         locations: impl IntoIterator<Item = impl AsLocationId>,
     ) -> Result<Vec<i64>, Error> {
-        let game = self.this_game();
+        self.verify_game_locations(self.this_game(), locations)
+    }
+
+    /// Converts [locations] to a vector and verifies that they're valid for the
+    /// specified game.
+    fn verify_game_locations(
+        &self,
+        game: &Game,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<Vec<i64>, Error> {
         locations
             .into_iter()
             .map(|l| {

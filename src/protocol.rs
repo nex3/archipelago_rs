@@ -23,6 +23,7 @@ pub(crate) enum ClientMessage {
     Sync,
     LocationChecks(LocationChecks),
     LocationScouts(LocationScouts),
+    CreateHints(CreateHints),
     UpdateHint(UpdateHint),
     StatusUpdate(StatusUpdate),
     Say(Say),
@@ -245,6 +246,13 @@ pub enum CreateAsHint {
     /// return value for [scout_locations](crate::Client::scout_locations) will
     /// still contain *all* locations.
     New = 2,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CreateHints {
+    pub(crate) locations: Vec<i64>,
+    pub(crate) player: u32,
+    pub(crate) status: HintStatus,
 }
 
 #[derive(Debug, Clone, Serialize)]
