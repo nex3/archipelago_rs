@@ -890,7 +890,7 @@ impl<S: DeserializeOwned> Client<S> {
                         .into_iter()
                         .map(|network| {
                             let receiver = self.teammate_arc(network.player)?;
-                            let receiver_game = self.game_or_err(sender.game())?;
+                            let receiver_game = self.game_or_err(receiver.game())?;
                             LocatedItem::hydrate_with_games(
                                 network,
                                 sender.clone(),
