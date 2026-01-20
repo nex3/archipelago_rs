@@ -265,10 +265,10 @@ pub(crate) struct UpdateHint {
 #[derive(Debug, Clone, Serialize_repr)]
 #[repr(u8)]
 pub enum HintStatus {
-    HintUnspecified = 0,
-    HintNoPriority = 10,
-    HintAvoid = 20,
-    HintPriority = 30,
+    Unspecified = 0,
+    NoPriority = 10,
+    Avoid = 20,
+    Priority = 30,
 }
 
 #[derive(Debug, Clone, Serialize)]
