@@ -25,7 +25,7 @@ impl Group {
         team: u32,
         client: &Client<S>,
     ) -> Self {
-        assert!(network.r#type == SlotType::Group);
+        assert_eq!(network.r#type, SlotType::Group);
         Group {
             name: network.name,
             game: network.game,
