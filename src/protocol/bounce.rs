@@ -1,27 +1,32 @@
+use std::collections::HashSet;
+use std::sync::LazyLock;
 use std::time::SystemTime;
 
-use serde::{de::Error, ser::*, Deserialize, Deserializer, Serialize, Serializer};
-use serde_json;
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error, ser::*};
 use serde_json::Value;
-use serde_with::{serde_as, TimestampSeconds};
+use serde_with::{TimestampSeconds, serde_as};
+use ustr::{Ustr, UstrSet};
+
+/// The name of the tag that indicates death links.
+pub(crate) static DEATH_LINK_TAG: LazyLock<Ustr> = LazyLock::new(|| Ustr::from("DeathLink"));
 
 #[derive(Debug, Clone)]
-pub struct Bounced {
-    pub games: Option<Vec<String>>,
-    pub slots: Option<Vec<i64>>,
-    pub tags: Vec<String>,
-    pub data: BounceData,
+pub(crate) struct Bounced {
+    pub(crate) games: Option<UstrSet>,
+    pub(crate) slots: Option<HashSet<u32>>,
+    pub(crate) tags: Option<UstrSet>,
+    pub(crate) data: BounceData,
 }
 
 /// An internal representation of the [Bounced] struct, used as an intermediate
 /// state to determine how to decode the [BounceData].
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct InternalBounced {
-    pub games: Option<Vec<String>>,
-    pub slots: Option<Vec<i64>>,
+    games: Option<UstrSet>,
+    slots: Option<HashSet<u32>>,
     #[serde(default)]
-    pub tags: Vec<String>,
-    pub data: Value,
+    tags: Option<UstrSet>,
+    data: Option<Value>,
 }
 
 // Deserialize Bounced based on its tags.
@@ -31,15 +36,19 @@ impl<'de> Deserialize<'de> for Bounced {
         D: Deserializer<'de>,
     {
         let internal = InternalBounced::deserialize(deserializer)?;
-        if internal.tags.iter().any(|t| t == "DeathLink") {
+        if let Some(ref tags) = internal.tags
+            && tags.contains(&*DEATH_LINK_TAG)
+        {
             Ok(Bounced {
                 games: internal.games,
                 slots: internal.slots,
                 tags: internal.tags,
-                data: BounceData::DeathLink(match serde_json::from_value(internal.data) {
-                    Ok(data) => data,
-                    Err(err) => return Err(D::Error::custom(err)),
-                }),
+                data: BounceData::DeathLink(
+                    match serde_json::from_value(internal.data.unwrap_or_default()) {
+                        Ok(data) => data,
+                        Err(err) => return Err(D::Error::custom(err)),
+                    },
+                ),
             })
         } else {
             Ok(Bounced {
@@ -53,9 +62,9 @@ impl<'de> Deserialize<'de> for Bounced {
 }
 
 #[derive(Debug, Clone)]
-pub enum BounceData {
+pub(crate) enum BounceData {
     DeathLink(DeathLink),
-    Generic(Value),
+    Generic(Option<Value>),
 }
 
 #[serde_as]
@@ -68,11 +77,11 @@ pub struct DeathLink {
 }
 
 #[derive(Debug, Clone)]
-pub struct Bounce {
-    pub games: Option<Vec<String>>,
-    pub slots: Option<Vec<String>>,
-    pub tags: Vec<String>,
-    pub data: BounceData,
+pub(crate) struct Bounce {
+    pub(crate) games: Option<UstrSet>,
+    pub(crate) slots: Option<HashSet<u32>>,
+    pub(crate) tags: Option<UstrSet>,
+    pub(crate) data: BounceData,
 }
 
 impl Serialize for Bounce {
@@ -95,17 +104,15 @@ impl Serialize for Bounce {
 
         match &self.data {
             BounceData::DeathLink(death_link) => {
-                let mut tags = self.tags.clone();
-                if !tags.iter().any(|t| t == "DeathLink") {
-                    tags.push("DeathLink".to_string());
-                }
+                let mut tags = self.tags.clone().unwrap_or_default();
+                tags.insert(*DEATH_LINK_TAG);
 
                 state.serialize_field("tags", &tags)?;
                 state.serialize_field("data", &death_link)?;
             }
             BounceData::Generic(value) => {
-                if !self.tags.is_empty() {
-                    state.serialize_field("tags", &self.tags)?;
+                if let Some(tags) = &self.tags {
+                    state.serialize_field("tags", tags)?;
                 }
                 state.serialize_field("data", &value)?;
             }

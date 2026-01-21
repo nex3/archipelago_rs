@@ -6,6 +6,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-Dwarnings"
+  RUSTDOCFLAGS: "-Dwarnings"
 
 jobs:
   build:
@@ -21,3 +22,5 @@ jobs:
     - run: cargo clippy -- -D warnings
     - run: cargo fmt -- --check
     - run: cargo build
+    - run: cargo build --example text_client
+    - run: cargo doc --no-deps

@@ -1,28 +1,29 @@
-use bimap::BiHashMap;
+use std::collections::HashMap;
+use std::{fmt::Display, time::SystemTime};
+
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
-use serde_with::serde_as;
-use serde_with::DisplayFromStr;
-use std::collections::HashMap;
-use std::fmt::Display;
-use std::sync::Arc;
+use serde_with::{DisplayFromStr, TimestampSeconds, serde_as};
+use ustr::{Ustr, UstrMap, UstrSet};
 
 mod bounce;
-mod rich_message;
+mod print;
 
-pub use bounce::*;
-pub use rich_message::*;
+pub(crate) use bounce::*;
+pub use print::TextColor;
+pub(crate) use print::*;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "cmd")]
-pub enum ClientMessage {
+pub(crate) enum ClientMessage {
     Connect(Connect),
     ConnectUpdate(ConnectUpdate),
     Sync,
     LocationChecks(LocationChecks),
     LocationScouts(LocationScouts),
+    CreateHints(CreateHints),
     UpdateHint(UpdateHint),
     StatusUpdate(StatusUpdate),
     Say(Say),
@@ -35,16 +36,17 @@ pub enum ClientMessage {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "cmd")]
-pub enum ServerMessage<S> {
+pub(crate) enum ServerMessage<S> {
     RoomInfo(RoomInfo),
     ConnectionRefused(ConnectionRefused),
     Connected(Connected<S>),
     ReceivedItems(ReceivedItems),
     LocationInfo(LocationInfo),
     RoomUpdate(RoomUpdate),
-    Print(Print),
+    #[serde(rename = "Print")]
+    PlainPrint(PlainPrint),
     #[serde(rename = "PrintJSON")]
-    RichPrint(RichPrint),
+    RawPrint(NetworkPrint),
     DataPackage(DataPackage),
     Bounced(Bounced),
     InvalidPacket(InvalidPacket),
@@ -54,7 +56,7 @@ pub enum ServerMessage<S> {
 
 impl<S> ServerMessage<S> {
     /// Returns the name of this message's type.
-    pub fn type_name(&self) -> &'static str {
+    pub(crate) fn type_name(&self) -> &'static str {
         use ServerMessage::*;
         match self {
             RoomInfo(_) => "RoomInfo",
@@ -63,8 +65,8 @@ impl<S> ServerMessage<S> {
             ReceivedItems(_) => "ReceivedItems",
             LocationInfo(_) => "LocationInfo",
             RoomUpdate(_) => "RoomUpdate",
-            Print(_) => "Print",
-            RichPrint(_) => "PrintJSON",
+            PlainPrint(_) => "Print",
+            RawPrint(_) => "PrintJSON",
             DataPackage(_) => "DataPackage",
             Bounced(_) => "Bounced",
             InvalidPacket(_) => "InvalidPacket",
@@ -74,22 +76,36 @@ impl<S> ServerMessage<S> {
     }
 }
 
-#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
+#[derive(Debug, Clone, Copy, Deserialize_repr)]
+#[repr(u8)]
+/// Permissions for when certain actions (such as releasing all checks) may be
+/// performed.
 pub enum Permission {
+    /// This action may never be performed.
     Disabled = 0,
+
+    /// This action may be manually performed at any time.
     Enabled = 1,
+
+    /// This action may be manually performed by a player after they have
+    /// reached their goal.
     Goal = 2,
+
+    /// This action is automatically performed after the player has reached
+    /// their goal. This is only possible for release and collect.
     Auto = 6,
+
+    /// This action is automatically performed after the player has reached
+    /// their goal *and* may be manually performed at any time.
     AutoEnabled = 7,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkVersion {
-    pub major: i64,
-    pub minor: i64,
-    pub build: i64,
-    pub class: String,
+pub(crate) struct NetworkVersion {
+    pub(crate) major: u16,
+    pub(crate) minor: u16,
+    pub(crate) build: u16,
+    pub(crate) class: String,
 }
 
 impl Display for NetworkVersion {
@@ -98,20 +114,20 @@ impl Display for NetworkVersion {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkPlayer {
-    pub team: i64,
-    pub slot: i64,
-    pub alias: String,
-    pub name: String,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct NetworkPlayer {
+    pub(crate) team: u32,
+    pub(crate) slot: u32,
+    pub(crate) alias: String,
+    pub(crate) name: Ustr,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkItem {
-    pub item: i64,
-    pub location: i64,
-    pub player: i64,
-    pub flags: NetworkItemFlags,
+pub(crate) struct NetworkItem {
+    pub(crate) item: i64,
+    pub(crate) location: i64,
+    pub(crate) player: u32,
+    pub(crate) flags: NetworkItemFlags,
 }
 
 bitflags! {
@@ -119,7 +135,7 @@ bitflags! {
     #[derive(Debug, Clone, Serialize, Deserialize)]
     #[serde(from = "u8")]
     #[serde(into = "u8")]
-    pub struct NetworkItemFlags: u8 {
+    pub(crate) struct NetworkItemFlags: u8 {
         /// The item can unlock logical advancement.
         const PROGRESSION = 0b001;
 
@@ -143,55 +159,47 @@ impl From<NetworkItemFlags> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
-pub enum SlotType {
+#[derive(Debug, Clone, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
+#[repr(u8)]
+pub(crate) enum SlotType {
+    // We ignore these because they aren't currently sent by the server.
     Spectator = 0,
     Player = 1,
     Group = 2,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NetworkSlot {
-    pub name: String,
-    pub game: String,
-    pub r#type: SlotType,
-    pub group_members: Vec<i64>,
-}
-
-pub fn network_version() -> NetworkVersion {
-    NetworkVersion {
-        major: 0,
-        minor: 6,
-        build: 0,
-        class: "Version".to_string(),
-    }
+pub(crate) struct NetworkSlot {
+    pub(crate) name: Ustr,
+    pub(crate) game: Ustr,
+    pub(crate) r#type: SlotType,
+    pub(crate) group_members: Vec<u32>,
 }
 
 // REQUESTS
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Connect {
-    pub password: Option<String>,
-    pub game: String,
-    pub name: String,
-    pub uuid: String,
-    pub version: NetworkVersion,
-    pub items_handling: u8,
-    pub tags: Vec<String>,
-    #[serde(rename = "slot_data")]
-    pub slot_data: bool,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Connect {
+    pub(crate) password: Option<String>,
+    pub(crate) game: Ustr,
+    pub(crate) name: Ustr,
+    pub(crate) uuid: String,
+    pub(crate) version: NetworkVersion,
+    pub(crate) items_handling: ItemsHandlingFlags,
+    pub(crate) tags: UstrSet,
+    pub(crate) slot_data: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectUpdate {
-    pub items_handling: u8,
-    pub tags: Vec<String>,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct ConnectUpdate {
+    pub(crate) items_handling: Option<ItemsHandlingFlags>,
+    pub(crate) tags: Option<Vec<Ustr>>,
 }
 
 bitflags! {
-    #[repr(transparent)]
-    pub struct ItemsHandlingFlags: u8 {
+    #[derive(Debug, Clone, Copy, Serialize)]
+    #[serde(into = "u8")]
+    pub(crate) struct ItemsHandlingFlags: u8 {
         /// Items are sent from other worlds.
         const OTHER_WORLDS = 0b001;
 
@@ -205,212 +213,310 @@ bitflags! {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationChecks {
-    pub locations: Vec<i64>,
+impl From<ItemsHandlingFlags> for u8 {
+    fn from(value: ItemsHandlingFlags) -> Self {
+        value.bits()
+    }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationScouts {
-    pub locations: Vec<i64>,
-    pub create_as_hint: u8,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct LocationChecks {
+    pub(crate) locations: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UpdateHint {
-    pub player: i64,
-    pub location: i64,
-    pub status: HintStatus,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct LocationScouts {
+    pub(crate) locations: Vec<i64>,
+    pub(crate) create_as_hint: CreateAsHint,
 }
 
+/// Options for whether and how locations scouted with [Client.scout_locations]
+/// should be broadcast as player-visible hints.
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
+#[repr(u8)]
+pub enum CreateAsHint {
+    /// Don't broadcast locations as hints. Scouted locations will only be
+    /// visible to the client code, not to the player.
+    No = 0,
+
+    /// Broadcast all scouted locations as hints.
+    All = 1,
+
+    /// Broadcast only locations that haven't already been hinted as hints. The
+    /// return value for [scout_locations](crate::Client::scout_locations) will
+    /// still contain *all* locations.
+    New = 2,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct CreateHints {
+    pub(crate) locations: Vec<i64>,
+    pub(crate) player: u32,
+    pub(crate) status: HintStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct UpdateHint {
+    pub(crate) player: u32,
+    pub(crate) location: i64,
+    pub(crate) status: HintStatus,
+}
+
+#[derive(Debug, Clone, Default, Serialize_repr)]
+#[repr(u8)]
 pub enum HintStatus {
-    HintFound = 0,
-    HintUnspecified = 1,
-    HintNoPriority = 10,
-    HintAvoid = 20,
-    HintPriority = 30,
+    #[default]
+    Unspecified = 0,
+    NoPriority = 10,
+    Avoid = 20,
+    Priority = 30,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct StatusUpdate {
-    pub status: ClientStatus,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct StatusUpdate {
+    pub(crate) status: ClientStatus,
 }
 
+/// Possible states for the client.
 #[derive(Debug, Clone, Serialize_repr, Deserialize_repr)]
-#[repr(u16)]
+#[repr(u8)]
 pub enum ClientStatus {
-    ClientUnknown = 0,
-    ClientReady = 10,
-    ClientPlaying = 20,
-    ClientGoal = 30,
+    Unknown = 0,
+
+    /// One or more clients are connected to the server. This is automatically
+    /// set when the connection is first established.
+    Connected = 5,
+    Ready = 10,
+    Playing = 20,
+
+    /// This player has achieved their goal.
+    Goal = 30,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Say {
-    pub text: String,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Say {
+    pub(crate) text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GetDataPackage {
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct GetDataPackage {
     #[serde(default)]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub games: Option<Vec<String>>,
+    pub(crate) games: Option<Vec<String>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Get {
-    pub keys: Vec<String>,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Get {
+    pub(crate) keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Set {
-    pub key: String,
-    pub default: Value,
-    pub want_reply: bool,
-    pub operations: Vec<DataStorageOperation>,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct Set {
+    pub(crate) key: String,
+    pub(crate) default: Value,
+    pub(crate) want_reply: bool,
+    pub(crate) operations: Vec<DataStorageOperation>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Operations that can be applied to keys in the Archipelago server's data
+/// store.
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "operation", content = "value", rename_all = "snake_case")]
 pub enum DataStorageOperation {
+    /// Replace the value entirely with a new value.
     Replace(Value),
+
+    /// Set the value to the default value specified in
+    /// [Client::change](crate::Client::change).
     Default,
-    Add(Value),
-    Mul(Value),
-    Pow(Value),
-    Mod(Value),
+
+    /// Adds the given number to the current value.
+    Add(f64),
+
+    /// Appends the given values to the end of an array.
+    #[serde(rename = "add")]
+    Appends(Vec<Value>),
+
+    /// Multiplies the current value by the given number.
+    #[serde(rename = "mul")]
+    Multiply(f64),
+
+    /// Exponentiates the current value to the given power.
+    #[serde(rename = "pow")]
+    Exponentiate(f64),
+
+    /// Sets the current value to itself modulo the given number.
+    Mod(f64),
+
+    /// Rounds the current value down to the next integer.
     Floor,
+
+    /// Rounds the current value up to the next integer.
     Ceil,
-    Max(Value),
-    Min(Value),
-    And(Value),
-    Or(Value),
-    Xor(Value),
-    LeftShift(Value),
-    RightShift(Value),
+
+    /// Sets the current value to the given number if it's greater than the
+    /// existing value.
+    Max(i64),
+
+    /// Sets the current value to the given number if it's less than the
+    /// existing value.
+    Min(i64),
+
+    /// Sets the current value to the bitwise AND of it and the given number.
+    And(i64),
+
+    /// Sets the current value to the bitwise OR of it and the given number.
+    Or(i64),
+
+    /// Sets the current value to the bitwise XOR of it and the given number.
+    Xor(i64),
+
+    /// Shifts the current value left by the given number of bits.
+    LeftShift(u8),
+
+    /// Shifts the current value right by the given number of bits.
+    RightShift(u8),
+
+    /// If the current value is an array, removes the first instance of the
+    /// given value from it.
     Remove(Value),
-    Pop(Value),
-    Update(Value),
+
+    /// If the current value is an array, removes the element at the given
+    /// index.
+    #[serde(rename = "pop")]
+    RemoveIndex(i64),
+
+    /// If the current value is a map, removes the element with the given key.
+    #[serde(rename = "pop")]
+    RemoveKey(String),
+
+    /// If the current value is an array, adds all elements in the given array
+    /// that aren't already present.
+    #[serde(rename = "update")]
+    Union(Vec<Value>),
+
+    /// If the current value is a map, sets the given keys to their associated
+    /// values.
+    Update(HashMap<String, Value>),
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetNotify {
-    pub keys: Vec<String>,
+#[derive(Debug, Clone, Serialize)]
+pub(crate) struct SetNotify {
+    pub(crate) keys: Vec<String>,
 }
 
 // RESPONSES
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoomInfo {
-    pub version: NetworkVersion,
-    pub generator_version: NetworkVersion,
-    pub tags: Vec<String>,
+#[serde_as]
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RoomInfo {
+    pub(crate) version: NetworkVersion,
+    pub(crate) generator_version: NetworkVersion,
+    pub(crate) tags: UstrSet,
     #[serde(rename = "password")]
-    pub password_required: bool,
-    pub permissions: HashMap<String, Permission>,
-    pub hint_cost: i64,
-    pub location_check_points: i64,
-    pub games: Vec<String>,
+    pub(crate) password_required: bool,
+    pub(crate) permissions: PermissionMap,
+    pub(crate) hint_cost: u8,
+    pub(crate) location_check_points: u64,
+    pub(crate) games: UstrSet,
+    // TODO: Cache data packages
     #[serde(default)]
-    pub datapackage_versions: HashMap<String, i64>,
-    #[serde(default)]
-    pub datapackage_checksums: HashMap<String, String>,
-    pub seed_name: String,
-    pub time: f64,
+    #[serde(rename = "datapackage_checksums")]
+    pub(crate) _datapackage_checksums: UstrMap<String>,
+    pub(crate) seed_name: String,
+    #[serde_as(as = "TimestampSeconds<f64>")]
+    pub(crate) time: SystemTime,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConnectionRefused {
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct PermissionMap {
+    pub(crate) release: Permission,
+    pub(crate) collect: Permission,
+    pub(crate) remaining: Permission,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ConnectionRefused {
     #[serde(default)]
-    pub errors: Vec<String>,
+    pub(crate) errors: Vec<String>,
 }
 
 #[serde_as]
 #[derive(Debug, Clone, Deserialize)]
-pub struct Connected<S> {
-    pub team: i64,
-    pub slot: i64,
-    pub players: Vec<NetworkPlayer>,
-    pub missing_locations: Vec<i64>,
-    pub checked_locations: Vec<i64>,
-    pub slot_data: S,
+pub(crate) struct Connected<S> {
+    pub(crate) team: u32,
+    pub(crate) slot: u32,
+    pub(crate) players: Vec<NetworkPlayer>,
+    pub(crate) missing_locations: Vec<i64>,
+    pub(crate) checked_locations: Vec<i64>,
+    pub(crate) slot_data: S,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
-    pub slot_info: HashMap<i64, NetworkSlot>,
-    pub hint_points: i64,
+    pub(crate) slot_info: HashMap<u32, NetworkSlot>,
+    pub(crate) hint_points: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReceivedItems {
-    pub index: i64,
-    pub items: Vec<NetworkItem>,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct ReceivedItems {
+    pub(crate) index: usize,
+    pub(crate) items: Vec<NetworkItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct LocationInfo {
-    pub locations: Vec<NetworkItem>,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct LocationInfo {
+    pub(crate) locations: Vec<NetworkItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RoomUpdate {
+// We only include fields here that might plausibly be changed during the
+// lifetime of a single connection.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct RoomUpdate {
     // Copied from RoomInfo
-    pub version: Option<NetworkVersion>,
-    pub tags: Option<Vec<String>>,
-    #[serde(rename = "password")]
-    pub password_required: Option<bool>,
-    pub permissions: Option<HashMap<String, Permission>>,
-    pub hint_cost: Option<i64>,
-    pub location_check_points: Option<i64>,
-    pub games: Option<Vec<String>>,
-    pub datapackage_versions: Option<HashMap<String, i64>>,
-    pub datapackage_checksums: Option<HashMap<String, String>>,
-    pub seed_name: Option<String>,
-    pub time: Option<f64>,
-    // Exclusive to RoomUpdate
-    pub hint_points: Option<i64>,
-    pub players: Option<Vec<NetworkPlayer>>,
-    pub checked_locations: Option<Vec<i64>>,
-    pub missing_locations: Option<Vec<i64>>,
+    pub(crate) tags: Option<UstrSet>,
+    pub(crate) permissions: Option<PermissionMap>,
+    pub(crate) hint_cost: Option<u8>,
+    pub(crate) location_check_points: Option<u64>,
+    // Copied from Connected
+    pub(crate) hint_points: Option<u64>,
+    pub(crate) players: Option<Vec<NetworkPlayer>>,
+    pub(crate) checked_locations: Option<Vec<i64>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Print {
-    pub text: String,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct DataPackage {
+    pub(crate) data: DataPackageObject,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataPackage {
-    pub data: DataPackageObject,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct DataPackageObject {
+    pub(crate) games: HashMap<Ustr, GameData>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DataPackageObject {
-    pub games: HashMap<String, GameData>,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct GameData {
+    pub(crate) item_name_to_id: HashMap<Ustr, i64>,
+    pub(crate) location_name_to_id: HashMap<Ustr, i64>,
+    // TODO: Cache data packages
+    #[serde(rename = "checksum")]
+    pub(crate) _checksum: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GameData {
-    pub item_name_to_id: BiHashMap<Arc<String>, i64>,
-    pub location_name_to_id: BiHashMap<Arc<String>, i64>,
-    pub checksum: String,
+// We could represent this as an enum of types, but there's no point when all we
+// want to do is extract the error message anyway.
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct InvalidPacket {
+    pub(crate) text: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InvalidPacket {
-    pub r#type: String,
-    pub original_cmd: Option<String>,
-    pub text: String,
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct Retrieved {
+    pub(crate) keys: HashMap<String, Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Retrieved {
-    pub keys: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SetReply {
-    pub key: String,
-    pub value: Value,
-    pub original_value: Option<Value>, // Won't be there if key is prefixed with _read
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct SetReply {
+    pub(crate) key: String,
+    pub(crate) value: Value,
+    pub(crate) original_value: Option<Value>, // Won't be there if key is prefixed with _read
+    // See https://github.com/ArchipelagoMW/Archipelago/issues/5829
+    pub(crate) slot: Option<u32>,
 }

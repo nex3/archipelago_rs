@@ -1,510 +1,1134 @@
-use std::time::SystemTime;
+use std::collections::{HashMap, VecDeque};
+use std::{mem, ptr, sync::Arc, time::SystemTime};
 
-use futures_util::{
-    stream::{SplitSink, SplitStream},
-    SinkExt, Stream, StreamExt,
+use serde::de::DeserializeOwned;
+use ustr::{Ustr, UstrMap, UstrSet};
+
+use crate::{
+    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
+    LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
+    UnsizedIter, UpdatedField, Version, protocol::*,
 };
-use thiserror::Error;
-use tokio::net::TcpStream;
-use tokio_tungstenite::{connect_async, MaybeTlsStream, WebSocketStream};
-use tungstenite::protocol::Message;
 
-use crate::protocol::*;
-
+mod bounce_options;
+mod create_hints_options;
 mod death_link_options;
 
+pub use bounce_options::*;
+pub use create_hints_options::*;
 pub use death_link_options::*;
 
-#[derive(Error, Debug)]
-pub enum ArchipelagoError {
-    #[error("illegal response")]
-    IllegalResponse {
-        expected: &'static str,
-        received: &'static str,
-    },
-    #[error("connection closed by server")]
-    ConnectionClosed,
-    #[error("data failed to serialize ({0})")]
-    FailedSerialize(#[from] serde_json::Error),
-    #[error("failed to deserialize server data ({error})\n{json}")]
-    FailedDeserialize {
-        json: String,
-        error: serde_json::Error,
-    },
-    #[error("unexpected non-text result from websocket")]
-    NonTextWebsocketResult(Message),
-    #[error("network error")]
-    NetworkError(#[from] tungstenite::Error),
-}
+/// The version of the Archipelago server that this client supports.
+const VERSION: NetworkVersion = NetworkVersion {
+    major: 0,
+    minor: 6,
+    build: 0,
+    class: String::new(),
+};
 
 /// The client that talks to the Archipelago server using the Archipelago
 /// protocol.
 ///
-/// The generic type [S] is used to deserialize the slot data in the initial
-/// [Connected] message. By default, it will decode the slot data as a dynamic
+/// The generic type `S` is used to deserialize the slot data in the initial
+/// `Connected` message. By default, it will decode the slot data as a dynamic
 /// JSON blob.
-pub struct ArchipelagoClient<S = serde_json::Value>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    ws: WebSocketStream<MaybeTlsStream<TcpStream>>,
-    room_info: RoomInfo,
-    message_buffer: Vec<ServerMessage<S>>,
-    data_package: Option<DataPackageObject>,
+///
+/// This isn't currently possible to construct directly. Instead, use
+/// [Connection](crate::Connection) which represents any possible state a
+/// connection can inhabit.
+pub struct Client<S: DeserializeOwned = serde_json::Value> {
+    socket: Socket<S>,
+
+    // == Session information
+    game: *const Game,
+    server_version: Version,
+    generator_version: Version,
+    server_tags: UstrSet,
+    password_required: bool,
+    permissions: PermissionMap,
+    hint_cost_percentage: u8,
+    hint_points_per_check: u64,
+    hint_points: u64,
+    seed_name: String,
+    games: UstrMap<Game>,
+    slot_data: S,
+    groups: Vec<NetworkSlot>,
+
+    /// The difference between the server's notion of the current time and ours.
+    /// We use this to normalize timestamps, under the assumption that they
+    /// should match the server's time.
+    server_skew: SignedDuration,
+
+    /// A map from `(team, slot)` to the player with that team and slot.
+    players: HashMap<(u32, u32), Arc<Player>>,
+
+    /// The key for the current player in [players].
+    player_key: (u32, u32),
+
+    /// The number of teams in this multiworld.
+    teams: u32,
+
+    /// A map from location IDs for this game to booleans indicating whether or
+    /// not they've been checked.
+    local_locations_checked: HashMap<i64, bool>,
+
+    /// A list of all the items this client has ever received. This is
+    /// overwritten if the server sends a new [ServerMessage::ReceivedItems]
+    /// with index 0.
+    received_items: Vec<ReceivedItem>,
+
+    /// Senders for [Client.scout_locations].
+    location_scout_senders: VecDeque<oneshot::Sender<Result<Vec<LocatedItem>, Error>>>,
+
+    /// Senders for [Client.get].
+    get_senders: VecDeque<oneshot::Sender<Result<HashMap<String, serde_json::Value>, Error>>>,
 }
 
-impl<S> ArchipelagoClient<S>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    /**
-     * Create an instance of the client and connect to the server on the given URL
-     */
-    pub async fn new(url: &str) -> Result<ArchipelagoClient<S>, ArchipelagoError> {
-        // Attempt WSS, downgrade to WS if the TLS handshake fails
-        let mut wss_url = String::new();
-        wss_url.push_str("wss://");
-        wss_url.push_str(url);
-        let (mut ws, _) = match connect_async(&wss_url).await {
-            Ok(result) => result,
-            Err(tungstenite::error::Error::Tls(_)) => {
-                let mut ws_url = String::new();
-                ws_url.push_str("ws://");
-                ws_url.push_str(url);
-                connect_async(&ws_url).await?
+impl<S: DeserializeOwned> Client<S> {
+    /// Asynchronously initializes a client connection to an Archipelago server.
+    ///
+    /// If the `url` doesn't have a protocol provided, this tries `wss://`
+    /// followed by `ws://`. If it doesn't have a port, it defaults to the
+    /// Archipelago default port 38281.
+    pub async fn connect(
+        url: String,
+        game: Ustr,
+        name: Ustr,
+        options: ConnectionOptions,
+    ) -> Result<Client<S>, Error> {
+        let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
+        {
+            Socket::<S>::connect(url).await?
+        } else {
+            match Socket::<S>::connect(format!("wss://{}", url)).await {
+                Ok(socket) => socket,
+                Err(Error::WebSocket(err)) => {
+                    match Socket::<S>::connect(format!("wss://{}", url)).await {
+                        Ok(socket) => socket,
+                        Err(_) => return Err(err.into()),
+                    }
+                }
+                Err(err) => return Err(err),
             }
-            Err(error) => return Err(ArchipelagoError::NetworkError(error)),
         };
 
-        let response = recv_messages(&mut ws)
-            .await
-            .ok_or(ArchipelagoError::ConnectionClosed)??;
-        let mut iter = response.into_iter();
-        let room_info = match iter.next() {
-            Some(ServerMessage::RoomInfo(room)) => room,
-            Some(received) => return Err(Self::illegal_response("RoomInfo", received)),
-            None => return Err(ArchipelagoError::ConnectionClosed),
+        log::debug!("Awaiting RoomInfo...");
+        let room_info = match socket.recv_async().await? {
+            ServerMessage::RoomInfo(room_info) => room_info,
+            message => {
+                return Err(ProtocolError::UnexpectedResponse {
+                    actual: message.type_name(),
+                    expected: "RoomInfo",
+                }
+                .into());
+            }
         };
 
-        Ok(ArchipelagoClient {
-            ws,
-            room_info,
-            message_buffer: iter.collect(),
-            data_package: None,
-        })
-    }
+        // TODO: cache data packages and only ask for those that are outdated.
+        log::debug!("Awaiting DataPackage...");
+        socket.send(ClientMessage::GetDataPackage(GetDataPackage {
+            games: None,
+        }))?;
 
-    /**
-     * Create an instance of the client and connect to the server, fetching the given games' Data
-     * Package
-     */
-    pub async fn with_data_package(
-        url: &str,
-        games: Option<Vec<String>>,
-    ) -> Result<ArchipelagoClient<S>, ArchipelagoError> {
-        let mut client = Self::new(url).await?;
-        client
-            .send(ClientMessage::GetDataPackage(GetDataPackage { games }))
-            .await?;
-        let response = client.recv().await?;
-        match response {
-            Some(ServerMessage::DataPackage(pkg)) => client.data_package = Some(pkg.data),
-            Some(received) => return Err(Self::illegal_response("DataPackage", received)),
-            None => return Err(ArchipelagoError::ConnectionClosed),
-        }
+        let data_package = match socket.recv_async().await? {
+            ServerMessage::DataPackage(DataPackage { data }) => data,
+            message => {
+                return Err(ProtocolError::UnexpectedResponse {
+                    actual: message.type_name(),
+                    expected: "DataPackage",
+                }
+                .into());
+            }
+        };
 
+        log::debug!("Awaiting Connected...");
+        let mut version = VERSION.clone();
+        version.class = "Version".into();
+        socket.send(ClientMessage::Connect(Connect {
+            password: options.password,
+            game,
+            name,
+            // Specify something useful here if
+            // ArchipelagoMW/Archipelago#998 ever gets sorted out.
+            uuid: "".into(),
+            version: version.clone(),
+            items_handling: options.item_handling.into(),
+            tags: options.tags,
+            slot_data: options.slot_data,
+        }))?;
+
+        let connected = match socket.recv_async().await? {
+            ServerMessage::Connected(connected) => connected,
+            ServerMessage::ConnectionRefused(ConnectionRefused { errors }) => {
+                return Err(Error::ConnectionRefused(
+                    errors.into_iter().map(|e| e.into()).collect(),
+                ));
+            }
+            message => {
+                return Err(ProtocolError::UnexpectedResponse {
+                    actual: message.type_name(),
+                    expected: "Connected",
+                }
+                .into());
+            }
+        };
+
+        let client = Client::new(socket, game, room_info, data_package, connected)?;
+        log::info!("Archipelago connection initialized successfully");
         Ok(client)
     }
 
-    pub fn room_info(&self) -> &RoomInfo {
-        &self.room_info
+    /// Creates a new client with all available initial information.
+    fn new(
+        socket: Socket<S>,
+        game: Ustr,
+        room_info: RoomInfo,
+        data_package: DataPackageObject,
+        mut connected: Connected<S>,
+    ) -> Result<Self, Error> {
+        let server_skew = SignedDuration::difference(SystemTime::now(), room_info.time);
+        let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
+
+        let teams = connected
+            .players
+            .iter()
+            .map(|p| p.team)
+            .max()
+            .ok_or(ProtocolError::EmptyPlayers)?
+            + 1;
+
+        let groups = connected
+            .slot_info
+            .extract_if(|_, slot| slot.r#type == SlotType::Group)
+            .map(|(_, slot)| slot)
+            .collect::<Vec<_>>();
+        for group in &groups {
+            for member in &group.group_members {
+                if !connected.slot_info.contains_key(member) {
+                    return Err(ProtocolError::MissingSlotInfo(*member).into());
+                }
+            }
+        }
+
+        let mut players = connected
+            .players
+            .into_iter()
+            .map(|p| {
+                let game = connected
+                    .slot_info
+                    .get(&p.slot)
+                    .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
+                    .ok_or(ProtocolError::MissingSlotInfo(p.slot))?
+                    .game;
+                let player = Player::hydrate(p, game);
+                Ok(((player.team(), player.slot()), player.into()))
+            })
+            .collect::<Result<HashMap<(u32, u32), Arc<Player>>, Error>>()?;
+        for team in 0..teams {
+            players.insert((team, 0), Player::archipelago(team).into());
+        }
+
+        let player_key = (connected.team, connected.slot);
+        if !players.contains_key(&player_key) {
+            return Err(ProtocolError::MissingPlayer {
+                team: connected.team,
+                slot: connected.slot,
+            }
+            .into());
+        }
+
+        let mut games = data_package
+            .games
+            .into_iter()
+            .map(|(name, data)| (name, Game::hydrate(name, data)))
+            .collect::<UstrMap<_>>();
+        for game_name in room_info.games {
+            games
+                .entry(game_name)
+                .or_insert_with(|| Game::no_data_package(game_name));
+        }
+
+        let game = games
+            // Safety: This is only used for the duration of the get.
+            .get(&Ustr::from(&game))
+            .ok_or(ProtocolError::MissingGameData(game))?;
+        let game_ptr = ptr::from_ref(game);
+
+        let mut local_locations_checked = HashMap::with_capacity(total_locations);
+        for id in connected.missing_locations {
+            game.verify_location(id)?;
+            local_locations_checked.insert(id, false);
+        }
+        for id in connected.checked_locations {
+            game.verify_location(id)?;
+            local_locations_checked.insert(id, true);
+        }
+
+        Ok(Client {
+            socket,
+            game: game_ptr,
+            server_version: room_info.version.into(),
+            generator_version: room_info.generator_version.into(),
+            server_tags: room_info.tags,
+            password_required: room_info.password_required,
+            permissions: room_info.permissions,
+            hint_cost_percentage: room_info.hint_cost,
+            hint_points_per_check: room_info.location_check_points,
+            hint_points: connected.hint_points,
+            seed_name: room_info.seed_name,
+            games,
+            slot_data: connected.slot_data,
+            groups,
+            server_skew,
+            players,
+            player_key,
+            teams,
+            local_locations_checked,
+            received_items: Default::default(),
+            location_scout_senders: Default::default(),
+            get_senders: Default::default(),
+        })
     }
 
-    pub fn data_package(&self) -> Option<&DataPackageObject> {
-        self.data_package.as_ref()
+    // == Session information
+
+    /// The game that's currently being played.
+    pub fn this_game(&self) -> &Game {
+        // Safety: This game is stored in [games], which we own and which is
+        // never mutated.
+        unsafe { &*self.game }
     }
 
-    pub async fn send(&mut self, message: ClientMessage) -> Result<(), ArchipelagoError> {
-        let request = serde_json::to_string(&[message])?;
-        self.ws.send(Message::Text(request.into())).await?;
+    /// The version of Archipelago which the server is running.
+    pub fn server_version(&self) -> &Version {
+        &self.server_version
+    }
 
+    /// The version of Archipelago that generated the multiworld.
+    pub fn generator_version(&self) -> &Version {
+        &self.generator_version
+    }
+
+    /// The server's special features or capabilities.
+    pub fn server_tags(&self) -> &UstrSet {
+        &self.server_tags
+    }
+
+    /// Whether this Archipelago multiworld requires a password to join.
+    pub fn password_required(&self) -> bool {
+        self.password_required
+    }
+
+    /// The permissions for distributing all items after a player reaches their
+    /// goal to other players awaiting them.
+    pub fn release_permission(&self) -> Permission {
+        self.permissions.release
+    }
+
+    /// The permissions for collecting all items after a player reaches their
+    /// goal.
+    pub fn collect_permission(&self) -> Permission {
+        self.permissions.collect
+    }
+
+    /// The permissions for a player querying the items remaining in their run.
+    pub fn remaining_permission(&self) -> Permission {
+        self.permissions.remaining
+    }
+
+    /// The number of hint points the player must accumulate in order to access
+    /// a single hint.
+    pub fn points_per_hint(&self) -> u64 {
+        (self.local_locations_checked.len() as u64) * u64::from(self.hint_cost_percentage) / 100
+    }
+
+    /// The number of hint points granted for each location a player checks.
+    pub fn hint_points_per_check(&self) -> u64 {
+        self.hint_points_per_check
+    }
+
+    /// The number of hint points the player currently has.
+    pub fn hint_points(&self) -> u64 {
+        self.hint_points
+    }
+
+    /// The uniquely-identifying name of the generated multiworld.
+    ///
+    /// If the same multiworld is hosted in multiple rooms, this will be the
+    /// same across those rooms.
+    pub fn seed_name(&self) -> &str {
+        self.seed_name.as_str()
+    }
+
+    /// A map from the names of each game in this multiworld to metadata about
+    /// those games.
+    pub fn games(&self) -> impl Iter<&Game> {
+        self.games.values()
+    }
+
+    /// Returns the game with the given `name`, if one is in this multiworld.
+    ///
+    /// Unlike [games](Self::games), this will return the special
+    /// [Game::archipelago] game.
+    pub fn game(&self, name: impl Into<Ustr>) -> Option<&Game> {
+        let name = name.into();
+        // Safety: We own the name for the duration of the call.
+        self.games.get(&name).or_else(|| {
+            let archipelago = Game::archipelago();
+            if name == archipelago.name() {
+                Some(archipelago)
+            } else {
+                None
+            }
+        })
+    }
+
+    /// Returns the game in this multiworld with the given `name`. Panics if
+    /// there's no game with that name.
+    pub fn assert_game(&self, name: impl Into<Ustr>) -> &Game {
+        let name = name.into();
+        self.game(name)
+            .unwrap_or_else(|| panic!("multiworld doesn't contain a game named \"{}\"", name))
+    }
+
+    /// Returns the game in this multiworld with the given [name]. Returns an
+    /// error if there's no game with that name.
+    pub(crate) fn game_or_err(&self, name: impl Into<Ustr>) -> Result<&Game, Error> {
+        let name = name.into();
+        self.game(name)
+            .ok_or_else(|| ProtocolError::MissingGameData(name).into())
+    }
+
+    /// The player that's currently connected to the multiworld.
+    pub fn this_player(&self) -> &Player {
+        self.players[&self.player_key].as_ref()
+    }
+
+    /// All players in the multiworld.
+    pub fn players(&self) -> impl Iter<&Player> {
+        self.players.values().map(|p| p.as_ref())
+    }
+
+    /// The player on the given `team` playing the given `slot`, if one exists.
+    ///
+    /// See also [teammate](Self::teammate) to only check the current player's team.
+    pub fn player(&self, team: u32, slot: u32) -> Option<&Player> {
+        self.players.get(&(team, slot)).map(|p| p.as_ref())
+    }
+
+    /// Clones the Arc for the player on the given `team` playing the given
+    /// `slot`.
+    pub(crate) fn player_arc(&self, team: u32, slot: u32) -> Result<Arc<Player>, Error> {
+        self.players
+            .get(&(team, slot))
+            .cloned()
+            .ok_or_else(|| ProtocolError::MissingPlayer { team, slot }.into())
+    }
+
+    /// The player on the given `team` playing the given `slot`. Panics if this
+    /// player doesn't exist.
+    ///
+    /// See also [assert_teammate](Self::assert_teammate) to only check the
+    /// current player's team.
+    pub fn assert_player(&self, team: u32, slot: u32) -> &Player {
+        self.player(team, slot).unwrap_or_else(|| {
+            if self.players.keys().any(|k| k.0 == team) {
+                panic!("no player with slot {}", slot);
+            } else {
+                panic!("no team with ID {}", team);
+            }
+        })
+    }
+
+    /// The player playing the given `slot` on the current player's team, if one
+    /// exists.
+    pub fn teammate(&self, slot: u32) -> Option<&Player> {
+        self.player(self.player_key.0, slot)
+    }
+
+    /// A clone of the [Arc] for the player playing the given [slot] on the
+    /// current player's team.
+    pub(crate) fn teammate_arc(&self, slot: u32) -> Result<Arc<Player>, Error> {
+        self.player_arc(self.player_key.0, slot)
+    }
+
+    /// The player playing the given `slot` on the current player's team. Panics
+    /// if this player doesn't exist.
+    pub fn assert_teammate(&self, slot: u32) -> &Player {
+        self.assert_player(self.player_key.0, slot)
+    }
+
+    /// The groups on the given `team`, if such a team exists.
+    pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
+        if team >= self.teams {
+            None
+        } else {
+            Some(
+                self.groups
+                    .iter()
+                    .map(move |g| Group::hydrate(g, team, self)),
+            )
+        }
+    }
+
+    /// The groups on the current player's.
+    pub fn teammate_groups(&self) -> impl Iter<Group> {
+        let team = self.player_key.0;
+        self.groups
+            .iter()
+            .map(move |g| Group::hydrate(g, team, self))
+    }
+
+    /// Returns whether the local location with the given ID has been checked
+    /// (either by us or by other players doing co-op).
+    ///
+    /// This may only be called for locations in the connected game's world.
+    /// Panics if it's called with a location ID that doesn't exist for this
+    /// world.
+    pub fn is_local_location_checked(&self, id: impl AsLocationId) -> bool {
+        let id = id.as_location_id();
+        *self.local_locations_checked.get(&id).unwrap_or_else(|| {
+            panic!(
+                "Archipelago location ID {} doesn't exist for {}",
+                id,
+                self.this_game().name()
+            )
+        })
+    }
+
+    /// Returns all the locations that the player has already checked.
+    pub fn checked_locations(&self) -> impl UnsizedIter<Location> {
+        let game = self.this_game();
+        self.local_locations_checked
+            .iter()
+            .filter(|(_, checked)| **checked)
+            .map(|(id, _)| game.assert_location(*id))
+    }
+
+    /// Returns all the locations that the player has not yet checked.
+    pub fn unchecked_locations(&self) -> impl UnsizedIter<Location> {
+        let game = self.this_game();
+        self.local_locations_checked
+            .iter()
+            .filter(|(_, checked)| !**checked)
+            .map(|(id, _)| game.assert_location(*id))
+    }
+
+    /// Returns all items that have ever been received by this client. Note that
+    /// this will be empty until the initial [Event::ReceivedItems] is emitted.
+    pub fn received_items(&self) -> &[ReceivedItem] {
+        &self.received_items
+    }
+
+    /// Returns the slot data provided by the apworld.
+    pub fn slot_data(&self) -> &S {
+        &self.slot_data
+    }
+
+    // == Requests
+
+    /// Updates the current connection settings with new `item_handling` and/or
+    /// `tags`.
+    pub fn update_connection(
+        &mut self,
+        item_handling: Option<ItemHandling>,
+        tags: Option<impl IntoIterator<Item: Into<Ustr>>>,
+    ) -> Result<(), Error> {
+        self.socket
+            .send(ClientMessage::ConnectUpdate(ConnectUpdate {
+                items_handling: item_handling.map(|i| i.into()),
+                tags: tags.map(|ts| ts.into_iter().map(|t| t.into()).collect()),
+            }))
+    }
+
+    /// Requests that the server resends all items this client has ever
+    /// received. This will appear as an [Event::ReceivedItems] with index 0.
+    pub fn sync(&mut self) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Sync)
+    }
+
+    /// Notifies the server that the given `locations` have been checked.
+    pub fn mark_checked(
+        &mut self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<(), Error> {
+        let locations = self.verify_local_locations(locations)?;
+        self.socket
+            .send(ClientMessage::LocationChecks(LocationChecks {
+                locations: locations.clone(),
+            }))?;
+
+        for id in locations {
+            if matches!(self.local_locations_checked.insert(id, true), Some(false)) {
+                self.hint_points += self.hint_points_per_check;
+            }
+        }
         Ok(())
     }
 
-    /**
-     * Read a message from the server
-     *
-     * Will buffer results locally, and return results from buffer or wait on network
-     * if buffer is empty
-     */
-    pub async fn recv(&mut self) -> Result<Option<ServerMessage<S>>, ArchipelagoError> {
-        if let Some(message) = self.message_buffer.pop() {
-            return Ok(Some(message));
-        }
-        let messages = recv_messages(&mut self.ws).await;
-        if let Some(result) = messages {
-            let mut messages = result?;
-            messages.reverse();
-            let first = messages.pop();
-            self.message_buffer = messages;
-            Ok(first)
-        } else {
-            Ok(None)
-        }
-    }
-
-    /**
-     * Send a connect request to the Archipelago server
-     *
-     * Will attempt to read a Connected packet in response, and will return an error if
-     * another packet is found
-     */
-    pub async fn connect(
+    /// Sends a request to the server that can serve one or both of two
+    /// purposes:
+    ///
+    /// * Informing the client which items exist at which location. This
+    ///   information will be made available by the returned
+    ///   [oneshot::Receiver].
+    ///
+    /// * Informing the server of locations that the client has seen but not
+    ///   checked. If [CreateAsHint.All] or [CreateAsHint.New] is passed,
+    ///   scouted locations will be broadcast as hints without deducting hint
+    ///   points from the player.
+    pub fn scout_locations(
         &mut self,
-        game: &str,
-        name: &str,
-        password: Option<&str>,
-        items_handling: ItemsHandlingFlags,
-        tags: Vec<String>,
-    ) -> Result<Connected<S>, ArchipelagoError> {
-        self.send(ClientMessage::Connect(Connect {
-            game: game.to_string(),
-            name: name.to_string(),
-            uuid: "".to_string(),
-            password: password.map(|p| p.to_string()),
-            version: network_version(),
-            items_handling: items_handling.bits(),
-            tags,
-            slot_data: true,
-        }))
-        .await?;
-        let response = self
-            .recv()
-            .await?
-            .ok_or(ArchipelagoError::ConnectionClosed)?;
-
-        match response {
-            ServerMessage::Connected(connected) => Ok(connected),
-            received => Err(Self::illegal_response("Connected", received)),
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+        create_as_hint: CreateAsHint,
+    ) -> oneshot::Receiver<Result<Vec<LocatedItem>, Error>> {
+        let (sender, receiver) = oneshot::channel();
+        match self
+            .verify_local_locations(locations)
+            .and_then(|locations| {
+                self.socket
+                    .send(ClientMessage::LocationScouts(LocationScouts {
+                        locations,
+                        create_as_hint,
+                    }))
+            }) {
+            Ok(()) => self.location_scout_senders.push_back(sender),
+            // If `send()` returns an error, that means that the receiver was
+            // dropped, which is fine to silently ignore.
+            Err(err) => mem::drop(sender.send(Err(err))),
         }
+        receiver
     }
 
-    /**
-     * Basic chat command which sends text to the server to be distributed to other clients.
-     */
-    pub async fn say(&mut self, message: &str) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::Say(Say {
-            text: message.to_string(),
-        }))
-        .await
-    }
-
-    /**
-     * Sent to server to request a ReceivedItems packet to synchronize items.
-     *
-     * Will buffer any non-ReceivedItems packets returned
-     */
-    pub async fn sync(&mut self) -> Result<ReceivedItems, ArchipelagoError> {
-        self.send(ClientMessage::Sync).await?;
-        while let Some(response) = self.recv().await? {
-            match response {
-                ServerMessage::ReceivedItems(items) => return Ok(items),
-                resp => self.message_buffer.push(resp),
-            }
-        }
-
-        Err(ArchipelagoError::ConnectionClosed)
-    }
-
-    /**
-     * Sent to server to inform it of locations that the client has checked.
-     *
-     * Used to inform the server of new checks that are made, as well as to sync state.
-     */
-    pub async fn location_checks(&mut self, locations: Vec<i64>) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::LocationChecks(LocationChecks { locations }))
-            .await
-    }
-
-    /**
-     * Sent to the server to inform it of locations the client has seen, but not checked.
-     *
-     * Useful in cases in which the item may appear in the game world, such as 'ledge items' in A Link to the Past. Non-LocationInfo packets will be buffered
-     */
-    pub async fn location_scouts(
+    /// Create hints for the specified locations on the server. Locations that
+    /// already have hints will be ignored.
+    ///
+    /// This is a shorthand for calling
+    /// [create_hints_with_options](Self::create_hints_with_options) with only
+    /// default options. It create hints for the current player's slot at
+    /// [HintStatus::Unspecified].
+    pub fn create_hints(
         &mut self,
-        locations: Vec<i64>,
-        create_as_hint: u8,
-    ) -> Result<LocationInfo, ArchipelagoError> {
-        self.send(ClientMessage::LocationScouts(LocationScouts {
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<(), Error> {
+        self.create_hints_with_options(locations, Default::default())
+    }
+
+    /// Create hints for the specified locations on the server. Locations that
+    /// already have hints will be ignored.
+    pub fn create_hints_with_options(
+        &mut self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+        options: CreateHintsOptions,
+    ) -> Result<(), Error> {
+        let slot = options.slot.unwrap_or(self.player_key.1);
+        self.verify_game_locations(
+            self.assert_game(self.verify_teammate(slot)?.game()),
             locations,
-            create_as_hint,
-        }))
-        .await?;
-        while let Some(response) = self.recv().await? {
-            match response {
-                ServerMessage::LocationInfo(items) => return Ok(items),
-                resp => self.message_buffer.push(resp),
+        )
+        .and_then(|locations| {
+            self.socket.send(ClientMessage::CreateHints(CreateHints {
+                locations,
+                player: slot,
+                status: options.status,
+            }))
+        })
+    }
+
+    /// Updates the status of the given hint on the server.
+    ///
+    /// This allows the player to indicate which hinted items from other worlds
+    /// they care about.
+    pub fn update_hint(
+        &mut self,
+        slot: u32,
+        location: impl AsLocationId,
+        status: HintStatus,
+    ) -> Result<(), Error> {
+        let location = location.as_location_id();
+        let player = self.verify_teammate(slot)?;
+        let game = self.assert_game(player.game());
+        if !game.has_location(location) {
+            return Err(ArgumentError::InvalidLocation {
+                location,
+                game: game.name(),
             }
+            .into());
         }
 
-        Err(ArchipelagoError::ConnectionClosed)
-    }
-
-    /**
-     * Sent to the server to update on the sender's status.
-     *
-     * Examples include readiness or goal completion. (Example: defeated Ganon in A Link to the Past)
-     */
-    pub async fn status_update(&mut self, status: ClientStatus) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::StatusUpdate(StatusUpdate { status }))
-            .await
-    }
-
-    /**
-     * Send this message to the server, tell it which clients should receive the message and the server will forward the message to all those targets to which any one requirement applies.
-     */
-    pub async fn bounce(
-        &mut self,
-        games: Option<Vec<String>>,
-        slots: Option<Vec<String>>,
-        tags: Vec<String>,
-        data: serde_json::Value,
-    ) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::Bounce(Bounce {
-            games,
-            slots,
-            tags,
-            data: BounceData::Generic(data),
+        self.socket.send(ClientMessage::UpdateHint(UpdateHint {
+            player: player.slot(),
+            location,
+            status,
         }))
-        .await
     }
 
-    /// Sends a death link notification to the server.
-    pub async fn death_link(
-        &mut self,
-        source: String,
-        options: DeathLinkOptions,
-    ) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::Bounce(Bounce {
+    /// Notifies the server that the client has the given `status`.
+    pub fn set_status(&mut self, status: ClientStatus) -> Result<(), Error> {
+        self.socket
+            .send(ClientMessage::StatusUpdate(StatusUpdate { status }))
+    }
+
+    /// Broadcasts `text` to all teammates in the multiworld.
+    pub fn say(&mut self, text: String) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Say(Say { text }))
+    }
+
+    /// Broadcasts `data` to other clients in the multiworld.
+    pub fn bounce(&mut self, data: serde_json::Value, options: BounceOptions) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Bounce(Bounce {
             games: options.games,
             slots: options.slots,
-            tags: vec![],
+            tags: options.tags,
+            data: BounceData::Generic(Some(data)),
+        }))
+    }
+
+    /// Notifies the player's teammates with death link enabled that the player
+    /// has died.
+    pub fn death_link(&mut self, options: DeathLinkOptions) -> Result<(), Error> {
+        let mut tags = options.tags.unwrap_or_default();
+        tags.insert(*DEATH_LINK_TAG);
+        self.socket.send(ClientMessage::Bounce(Bounce {
+            games: options.games,
+            slots: options.slots,
+            tags: Some(tags),
             data: BounceData::DeathLink(DeathLink {
-                time: options.time.unwrap_or_else(SystemTime::now),
+                // Subtract the server delay so that we're sending our best
+                // guess of the time on the server when the death occurred.
+                time: options.time.unwrap_or(SystemTime::now()) - self.server_skew,
                 cause: options.cause,
-                source,
+                source: options
+                    .source
+                    .unwrap_or_else(|| self.this_player().alias().to_string()),
             }),
         }))
-        .await
     }
 
-    /**
-     * Used to request a single or multiple values from the server's data storage, see the Set package for how to write values to the data storage.
-     *
-     * A Get package will be answered with a Retrieved package. Non-Retrieved responses are
-     * buffered
-     */
-    pub async fn get(&mut self, keys: Vec<String>) -> Result<Retrieved, ArchipelagoError> {
-        self.send(ClientMessage::Get(Get { keys })).await?;
-        while let Some(response) = self.recv().await? {
-            match response {
-                ServerMessage::Retrieved(items) => return Ok(items),
-                resp => self.message_buffer.push(resp),
-            }
-        }
-
-        Err(ArchipelagoError::ConnectionClosed)
-    }
-
-    /**
-     * Used to write data to the server's data storage, that data can then be shared across worlds or just saved for later.
-     *
-     * Values for keys in the data storage can be retrieved with a Get package, or monitored with a SetNotify package. Non-SetReply responses are buffered
-     */
-    pub async fn set(
+    /// Retrieves custom data from the server's data store. The specific
+    /// structure of the data is up to the clients that set it.
+    ///
+    /// This can also retrieve special fields generated by the Archipelago
+    /// server. See [the protocol documentation] for details.
+    ///
+    /// [the protocol documentation]: https://github.com/ArchipelagoMW/Archipelago/blob/main/docs/network%20protocol.md#get
+    pub fn get(
         &mut self,
-        key: String,
+        keys: impl IntoIterator<Item = impl Into<String>>,
+    ) -> oneshot::Receiver<Result<HashMap<String, serde_json::Value>, Error>> {
+        let (sender, receiver) = oneshot::channel();
+        match self.socket.send(ClientMessage::Get(Get {
+            keys: keys.into_iter().map(|k| k.into()).collect(),
+        })) {
+            Ok(()) => self.get_senders.push_back(sender),
+            Err(err) => mem::drop(sender.send(Err(err))),
+        }
+        receiver
+    }
+
+    /// Sets custom data in the server's data store. The specific structure of
+    /// the data is up to the clients that set it.
+    ///
+    /// If `emit_event` is `true`, [update](Self::update) will eventually emit
+    /// [Event::KeyChanged] for this key, even if it's not otherwise being
+    /// watched.
+    pub fn set(
+        &mut self,
+        key: impl Into<String>,
+        value: serde_json::Value,
+        emit_event: bool,
+    ) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Set(Set {
+            key: key.into(),
+            default: serde_json::Value::Null,
+            operations: vec![DataStorageOperation::Replace(value)],
+            want_reply: emit_event,
+        }))
+    }
+
+    /// Changes custom data in the server's data store. The specific structure
+    /// of the data is up to the clients that set it.
+    ///
+    /// This applies each change in `operations` in order. If the key doesn't
+    /// already have a value, `default` is used.
+    ///
+    /// If `emit_event` is `true`, [update](Self::update) will eventually emit
+    /// [Event::KeyChanged] for this key, even if it's not otherwise being
+    /// watched.
+    pub fn change(
+        &mut self,
+        key: impl Into<String>,
         default: serde_json::Value,
-        want_reply: bool,
-        operations: Vec<DataStorageOperation>,
-    ) -> Result<SetReply, ArchipelagoError> {
-        self.send(ClientMessage::Set(Set {
-            key,
+        operations: impl IntoIterator<Item = DataStorageOperation>,
+        emit_event: bool,
+    ) -> Result<(), Error> {
+        self.socket.send(ClientMessage::Set(Set {
+            key: key.into(),
             default,
-            want_reply,
-            operations,
+            operations: operations.into_iter().collect(),
+            want_reply: emit_event,
         }))
-        .await?;
-        while let Some(response) = self.recv().await? {
-            match response {
-                ServerMessage::SetReply(items) => return Ok(items),
-                resp => self.message_buffer.push(resp),
-            }
-        }
-
-        Err(ArchipelagoError::ConnectionClosed)
     }
 
-    /**
-     * Split the client into two parts, one to handle sending and one to handle receiving.
-     *
-     * This removes access to a few convenience methods (like `get` or `set`) because it's
-     * there's now extra coordination required to match a read and write, but it brings
-     * the benefits of allowing simultaneous reading and writing.
-     */
-    pub fn split(self) -> (ArchipelagoClientSender, ArchipelagoClientReceiver<S>) {
-        let Self {
-            ws,
-            room_info,
-            message_buffer,
-            data_package,
-        } = self;
-        let (send, recv) = ws.split();
-        (
-            ArchipelagoClientSender { ws: send },
-            ArchipelagoClientReceiver {
-                ws: recv,
-                room_info,
-                message_buffer,
-                data_package,
-            },
-        )
-    }
-
-    /// Returns an illegal response error indicating the [expected] response
-    /// type and the actual type of [received].
-    fn illegal_response(expected: &'static str, received: ServerMessage<S>) -> ArchipelagoError {
-        ArchipelagoError::IllegalResponse {
-            expected,
-            received: received.type_name(),
-        }
-    }
-}
-
-/**
- * Once split, this struct handles the sending-side of your connection
- *
- * For helper method docs, see ArchipelagoClient. Helper methods that require
- * both sending and receiving are intentionally unavailable; for those messages,
- * use `send`.
- */
-pub struct ArchipelagoClientSender {
-    ws: SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>,
-}
-
-impl ArchipelagoClientSender {
-    pub async fn send(&mut self, message: ClientMessage) -> Result<(), ArchipelagoError> {
-        let request = serde_json::to_string(&[message])?;
-        self.ws.send(Message::Text(request.into())).await?;
-
-        Ok(())
-    }
-
-    pub async fn say(&mut self, message: &str) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::Say(Say {
-            text: message.to_string(),
-        }))
-        .await
-    }
-
-    pub async fn location_checks(&mut self, locations: Vec<i64>) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::LocationChecks(LocationChecks { locations }))
-            .await
-    }
-
-    pub async fn status_update(&mut self, status: ClientStatus) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::StatusUpdate(StatusUpdate { status }))
-            .await
-    }
-
-    pub async fn bounce(
+    /// Watches the given `keys` in the server's data store. Any time the key is
+    /// set (even if it doesn't change), [Event::KeyChanged] will be emitted.
+    pub fn watch(
         &mut self,
-        games: Option<Vec<String>>,
-        slots: Option<Vec<String>>,
-        tags: Vec<String>,
-        data: serde_json::Value,
-    ) -> Result<(), ArchipelagoError> {
-        self.send(ClientMessage::Bounce(Bounce {
-            games,
-            slots,
-            tags,
-            data: BounceData::Generic(data),
+        keys: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<(), Error> {
+        self.socket.send(ClientMessage::SetNotify(SetNotify {
+            keys: keys.into_iter().map(|k| k.into()).collect(),
         }))
-        .await
-    }
-}
-
-/**
- * Once split, this struct handles the receiving-side of your connection
- *
- * For helper method docs, see ArchipelagoClient. Helper methods that require
- * both sending and receiving are intentionally unavailable; for those messages,
- * use `recv`.
- */
-pub struct ArchipelagoClientReceiver<S = serde_json::Value>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    ws: SplitStream<WebSocketStream<MaybeTlsStream<TcpStream>>>,
-    room_info: RoomInfo,
-    message_buffer: Vec<ServerMessage<S>>,
-    data_package: Option<DataPackageObject>,
-}
-
-impl<S> ArchipelagoClientReceiver<S>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    pub async fn recv(&mut self) -> Result<Option<ServerMessage<S>>, ArchipelagoError> {
-        if let Some(message) = self.message_buffer.pop() {
-            return Ok(Some(message));
-        }
-        let messages = recv_messages(&mut self.ws).await;
-        if let Some(result) = messages {
-            let mut messages = result?;
-            messages.reverse();
-            let first = messages.pop();
-            self.message_buffer = messages;
-            Ok(first)
-        } else {
-            Ok(None)
-        }
     }
 
-    pub fn room_info(&self) -> &RoomInfo {
-        &self.room_info
+    /// Converts [locations] to a vector and verifies that they're valid for the
+    /// current game.
+    fn verify_local_locations(
+        &self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<Vec<i64>, Error> {
+        self.verify_game_locations(self.this_game(), locations)
     }
 
-    pub fn data_package(&self) -> Option<&DataPackageObject> {
-        self.data_package.as_ref()
+    /// Converts [locations] to a vector and verifies that they're valid for the
+    /// specified game.
+    fn verify_game_locations(
+        &self,
+        game: &Game,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+    ) -> Result<Vec<i64>, Error> {
+        locations
+            .into_iter()
+            .map(|l| {
+                let id = l.as_location_id();
+                if game.has_location(id) {
+                    Ok(id)
+                } else {
+                    Err(ArgumentError::InvalidLocation {
+                        location: id,
+                        game: game.name(),
+                    }
+                    .into())
+                }
+            })
+            .collect()
     }
-}
 
-async fn recv_messages<S>(
-    mut ws: impl Stream<Item = Result<Message, tungstenite::error::Error>> + std::marker::Unpin,
-) -> Option<Result<Vec<ServerMessage<S>>, ArchipelagoError>>
-where
-    S: for<'a> serde::de::Deserialize<'a>,
-{
-    loop {
-        match ws.next().await? {
-            Ok(Message::Text(response)) => {
-                return Some(
-                    serde_json::from_str::<Vec<ServerMessage<S>>>(&response).map_err(|e| {
-                        ArchipelagoError::FailedDeserialize {
-                            json: response.to_string(),
-                            error: e,
+    /// Returns the [Player] for [slot] on the current team and verifies that
+    /// it's a valid slot number.
+    fn verify_teammate(&self, slot: u32) -> Result<&Player, Error> {
+        self.teammate(slot)
+            .ok_or(ArgumentError::InvalidSlot(slot).into())
+    }
+
+    // == Event handling
+
+    /// Returns any pending [Event]s from the Archipelago server and updates the
+    /// rest of the client's state to accommodate new information.
+    ///
+    /// This call never blocks, and is expected to be called repeatedly in order
+    /// to check for new messages from the underlying connection to Archipelago.
+    /// Typically a caller that's integrated Archipelago into a game loop will
+    /// call this once each frame.
+    ///
+    /// Most errors are fatal, and if emitted mean that the client will not emit
+    /// any more events and should be discarded and reconnected. Some
+    /// (specifically [Error::ProtocolError]s) are recoverable, though, and the
+    /// client will continue to emit additional events after they're emitted if
+    /// it's not dropped. You can detect which errors are fatal using
+    /// [Error.is_fatal].
+    pub fn update(&mut self) -> Vec<Event> {
+        let mut events = Vec::<Event>::new();
+        loop {
+            match self.socket.try_recv() {
+                Ok(Some(ServerMessage::RawPrint(print))) => match Print::hydrate(print, self) {
+                    Ok(print) => events.push(Event::Print(print)),
+                    Err(err) => events.push(Event::Error(err)),
+                },
+
+                Ok(Some(ServerMessage::PlainPrint(PlainPrint { text }))) => {
+                    events.push(Event::Print(Print::message(text)))
+                }
+
+                Ok(Some(ServerMessage::RoomUpdate(update))) => match self.update_room(update) {
+                    Ok(event) => events.push(event),
+                    Err(err) => events.push(Event::Error(err)),
+                },
+
+                Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
+                    if index == 0 {
+                        self.received_items.clear();
+                    } else if index > self.received_items.len() {
+                        // If the index of the item we just received doesn't
+                        // match our expectation, follow the client guidelines
+                        // and send a sync message requesting that the server
+                        // send us all items over again.
+                        if let Err(err) = self.sync() {
+                            events.push(Event::Error(err));
                         }
-                    }),
-                )
+                        continue;
+                    }
+
+                    let receiver = &self.players[&self.player_key];
+                    let receiver_game = self.this_game();
+                    let items_or_err = items
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, network)| {
+                            let sender = self.teammate_arc(network.player)?;
+                            let sender_game = self.game_or_err(sender.game())?;
+                            let item = LocatedItem::hydrate_with_games(
+                                network,
+                                sender,
+                                receiver.clone(),
+                                sender_game,
+                                receiver_game,
+                            )?;
+                            Ok(ReceivedItem::new(item, index + i))
+                        })
+                        .collect::<Result<Vec<ReceivedItem>, Error>>();
+                    events.push(match items_or_err {
+                        Ok(items) => {
+                            self.received_items.extend(items);
+                            Event::ReceivedItems(index)
+                        }
+                        Err(err) => Event::Error(err),
+                    })
+                }
+
+                Ok(Some(ServerMessage::LocationInfo(LocationInfo { locations }))) => {
+                    let sender = &self.players[&self.player_key];
+                    let sender_game = self.this_game();
+
+                    let locations_or_err = locations
+                        .into_iter()
+                        .map(|network| {
+                            let receiver = self.teammate_arc(network.player)?;
+                            let receiver_game = self.game_or_err(receiver.game())?;
+                            LocatedItem::hydrate_with_games(
+                                network,
+                                sender.clone(),
+                                receiver,
+                                sender_game,
+                                receiver_game,
+                            )
+                        })
+                        .collect::<Result<Vec<LocatedItem>, Error>>();
+                    if let Some(sender) = self.location_scout_senders.pop_front() {
+                        mem::drop(sender.send(locations_or_err));
+                    } else {
+                        events.push(Event::Error(
+                            ProtocolError::ResponseWithoutRequest("LocationInfo").into(),
+                        ));
+                    }
+                }
+
+                Ok(Some(ServerMessage::Bounced(Bounced {
+                    games,
+                    slots,
+                    tags,
+                    data: BounceData::Generic(data),
+                }))) => events.push(Event::Bounce {
+                    games,
+                    slots,
+                    tags,
+                    data,
+                }),
+
+                Ok(Some(ServerMessage::Bounced(Bounced {
+                    games,
+                    slots,
+                    tags,
+                    data: BounceData::DeathLink(data),
+                }))) => events.push(Event::DeathLink {
+                    games,
+                    slots,
+                    tags: tags.unwrap(),
+                    // We assume other clients try to normalize the time to be
+                    // the time on the server when the death occurred, so add
+                    // the server delay to translate that back into the time on
+                    // the client.
+                    time: data.time + self.server_skew,
+                    cause: data.cause,
+                    source: data.source,
+                }),
+
+                Ok(Some(ServerMessage::InvalidPacket(InvalidPacket { text }))) => {
+                    events.push(Event::Error(Error::InvalidPacket(text)))
+                }
+
+                Ok(Some(ServerMessage::Retrieved(Retrieved { keys }))) => {
+                    if let Some(sender) = self.get_senders.pop_front() {
+                        mem::drop(sender.send(Ok(keys)));
+                    } else {
+                        events.push(Event::Error(
+                            ProtocolError::ResponseWithoutRequest("Retrieved").into(),
+                        ));
+                    }
+                }
+
+                Ok(Some(ServerMessage::SetReply(SetReply {
+                    key,
+                    value,
+                    original_value,
+                    slot: None,
+                }))) => events.push(Event::KeyChanged {
+                    key,
+                    old_value: original_value,
+                    new_value: value,
+                    player: None,
+                }),
+
+                Ok(Some(ServerMessage::SetReply(SetReply {
+                    key,
+                    value,
+                    original_value,
+                    slot: Some(slot),
+                }))) => events.push(match self.teammate_arc(slot) {
+                    Ok(player) => Event::KeyChanged {
+                        key,
+                        old_value: original_value,
+                        new_value: value,
+                        player: Some(player),
+                    },
+                    Err(err) => Event::Error(err),
+                }),
+
+                Ok(Some(ServerMessage::RoomInfo(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("RoomInfo").into(),
+                )),
+
+                Ok(Some(ServerMessage::ConnectionRefused(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("ConnectionRefused").into(),
+                )),
+
+                Ok(Some(ServerMessage::Connected(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("Connected").into(),
+                )),
+
+                Ok(Some(ServerMessage::DataPackage(_))) => events.push(Event::Error(
+                    ProtocolError::ResponseWithoutRequest("DataPackage").into(),
+                )),
+
+                Ok(None) => return events,
+
+                Err(err) => {
+                    let fatal = err.is_fatal();
+                    events.push(Event::Error(err));
+                    if fatal {
+                        return events;
+                    }
+                }
             }
-            Ok(Message::Close(_)) => return Some(Err(ArchipelagoError::ConnectionClosed)),
-            // Ignore pings and pongs. Tungstenite handles these for us but doesn't
-            // hide them.
-            Ok(Message::Ping(_) | Message::Pong(_)) => (),
-            Ok(msg) => return Some(Err(ArchipelagoError::NonTextWebsocketResult(msg))),
-            Err(e) => return Some(Err(e.into())),
         }
     }
+
+    /// Updates the room with the information in [update].
+    fn update_room(&mut self, update: RoomUpdate) -> Result<Event, Error> {
+        // Check for errors before making any changes so we don't end up in an
+        // intermediate state.
+        let checked_locations = update
+            .checked_locations
+            .map(|ids| {
+                let game = self.this_game();
+                ids.into_iter()
+                    .map(|id| game.location_or_err(id))
+                    .collect::<Result<Vec<_>, Error>>()
+            })
+            .transpose()?;
+
+        let updated_players = update
+            .players
+            .map(|players| {
+                players
+                    .into_iter()
+                    .filter_map(|new| {
+                        self.players
+                            .get(&(new.team, new.slot))
+                            .ok_or(ProtocolError::MissingPlayer {
+                                team: new.team,
+                                slot: new.slot,
+                            })
+                            .map(|old| {
+                                if old.alias() == new.alias {
+                                    None
+                                } else {
+                                    Some(Player::hydrate(new, old.game()))
+                                }
+                            })
+                            .transpose()
+                    })
+                    .collect::<Result<Vec<_>, ProtocolError>>()
+            })
+            .transpose()?;
+
+        let mut updated = Vec::new();
+        if let Some(tags) = update.tags {
+            updated.push(UpdatedField::ServerTags(mem::replace(
+                &mut self.server_tags,
+                tags,
+            )))
+        }
+
+        if let Some(permissions) = update.permissions {
+            updated.push(UpdatedField::Permissions {
+                release: self.permissions.release,
+                collect: self.permissions.collect,
+                remaining: self.permissions.remaining,
+            });
+            self.permissions = permissions;
+        }
+
+        if update.hint_cost.is_some() || update.location_check_points.is_some() {
+            updated.push(UpdatedField::HintEconomy {
+                points_per_hint: self.points_per_hint(),
+                hint_points_per_check: self.hint_points_per_check(),
+            });
+            if let Some(hint_cost_percentage) = update.hint_cost {
+                self.hint_cost_percentage = hint_cost_percentage;
+            }
+            if let Some(hint_points_per_check) = update.location_check_points {
+                self.hint_points_per_check = hint_points_per_check;
+            }
+        }
+
+        if let Some(hint_points) = update.hint_points {
+            updated.push(UpdatedField::HintPoints(mem::replace(
+                &mut self.hint_points,
+                hint_points,
+            )))
+        }
+
+        if let Some(players) = updated_players {
+            updated.push(UpdatedField::Players(
+                players
+                    .into_iter()
+                    .filter_map(|p| self.players.insert((p.team(), p.slot()), p.into()))
+                    .collect(),
+            ))
+        }
+
+        if let Some(locations) = checked_locations {
+            updated.push(UpdatedField::CheckedLocations(
+                locations
+                    .into_iter()
+                    // Omit locations that we already know are checked from
+                    // local information.
+                    .filter(|loc| !self.local_locations_checked.insert(loc.id(), true).unwrap())
+                    .collect(),
+            ))
+        }
+
+        Ok(Event::Updated(updated))
+    }
 }
+
+// The only reason Client doesn't automatically implement [Unpin] is that S
+// might not implement it (although being decoded from JSON it probably does).
+// Since we treat slot data as immutable anyway, we can guarantee that nothing
+// will change and so it's safe to declare the entire Client as Unpin.
+impl<S> Unpin for Client<S> where S: DeserializeOwned {}
+
+// Safety: This isn't automatically Send due to `*const Game`, but that's just a
+// pointer to data the client owns.
+unsafe impl<S> Send for Client<S> where S: DeserializeOwned + Send {}
