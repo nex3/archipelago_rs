@@ -262,9 +262,10 @@ pub(crate) struct UpdateHint {
     pub(crate) status: HintStatus,
 }
 
-#[derive(Debug, Clone, Serialize_repr)]
+#[derive(Debug, Clone, Default, Serialize_repr)]
 #[repr(u8)]
 pub enum HintStatus {
+    #[default]
     Unspecified = 0,
     NoPriority = 10,
     Avoid = 20,

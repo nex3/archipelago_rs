@@ -11,9 +11,11 @@ use crate::{
 };
 
 mod bounce_options;
+mod create_hints_options;
 mod death_link_options;
 
 pub use bounce_options::*;
+pub use create_hints_options::*;
 pub use death_link_options::*;
 
 /// The version of the Archipelago server that this client supports.
@@ -598,16 +600,28 @@ impl<S: DeserializeOwned> Client<S> {
         receiver
     }
 
-    /// Create hints for the specified locations on the server
+    /// Create hints for the specified locations on the server. Locations that
+    /// already have hints will be ignored.
     ///
-    /// * Non-existing locations for your own slot will be skipped
-    /// * Hints that already exist will also be skipped and not updated
+    /// This is a shorthand for calling
+    /// [create_hints_with_options](Self::create_hints_with_options) with only
+    /// default options. It create hints for the current player's slot at
+    /// [HintStatus::Unspecified].
     pub fn create_hints(
         &mut self,
         locations: impl IntoIterator<Item = impl AsLocationId>,
-        slot: u32,
-        status: HintStatus,
     ) -> Result<(), Error> {
+        self.create_hints_with_options(locations, Default::default())
+    }
+
+    /// Create hints for the specified locations on the server. Locations that
+    /// already have hints will be ignored.
+    pub fn create_hints_with_options(
+        &mut self,
+        locations: impl IntoIterator<Item = impl AsLocationId>,
+        options: CreateHintsOptions,
+    ) -> Result<(), Error> {
+        let slot = options.slot.unwrap_or(self.player_key.1);
         self.verify_game_locations(
             self.assert_game(self.verify_teammate(slot)?.game()),
             locations,
@@ -616,7 +630,7 @@ impl<S: DeserializeOwned> Client<S> {
             self.socket.send(ClientMessage::CreateHints(CreateHints {
                 locations,
                 player: slot,
-                status,
+                status: options.status,
             }))
         })
     }
