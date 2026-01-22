@@ -1,13 +1,12 @@
+use serde::de::DeserializeOwned;
 use std::collections::{HashMap, VecDeque};
 use std::{mem, ptr, sync::Arc, time::SystemTime};
-
-use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
     ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
     LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
-    UnsizedIter, UpdatedField, Version, protocol::*,
+    UnsizedIter, UpdatedField, Version, cache, protocol::*,
 };
 
 mod bounce_options;
@@ -123,24 +122,37 @@ impl<S: DeserializeOwned> Client<S> {
                 .into());
             }
         };
-
-        // TODO: cache data packages and only ask for those that are outdated.
-        log::debug!("Awaiting DataPackage...");
-        socket.send(ClientMessage::GetDataPackage(GetDataPackage {
-            games: None,
-        }))?;
-
-        let data_package = match socket.recv_async().await? {
-            ServerMessage::DataPackage(DataPackage { data }) => data,
-            message => {
-                return Err(ProtocolError::UnexpectedResponse {
-                    actual: message.type_name(),
-                    expected: "DataPackage",
+        log::debug!("Loading Cached DataPackages...");
+        let mut packages = cache::validate_and_load_data_packages(
+            &room_info.datapackage_checksums,
+            &options.data_package_location,
+        );
+        if !packages.failed_games.is_empty() {
+            log::debug!("Awaiting DataPackage...");
+            socket.send(ClientMessage::GetDataPackage(GetDataPackage {
+                games: Some(packages.failed_games),
+            }))?;
+            let received_dp = match socket.recv_async().await? {
+                ServerMessage::DataPackage(DataPackage { data }) => data,
+                message => {
+                    return Err(ProtocolError::UnexpectedResponse {
+                        actual: message.type_name(),
+                        expected: "DataPackage",
+                    }
+                    .into());
                 }
-                .into());
+            };
+            log::debug!("Writing new entries to cache...");
+            if let Err(err) =
+                cache::write_to_cache(&received_dp.games, &options.data_package_location)
+            {
+                log::error!("Failed to write entries to cache: {}", err);
             }
+            packages.data_packages.extend(received_dp.games);
+        }
+        let data_package = DataPackageObject {
+            games: packages.data_packages,
         };
-
         log::debug!("Awaiting Connected...");
         let mut version = VERSION.clone();
         version.class = "Version".into();

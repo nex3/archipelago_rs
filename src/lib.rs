@@ -1,3 +1,4 @@
+mod cache;
 mod client;
 mod connection;
 mod connection_options;
