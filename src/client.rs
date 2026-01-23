@@ -126,11 +126,19 @@ impl<S: DeserializeOwned> Client<S> {
         let mut packages = cache::validate_and_load_data_packages(
             &room_info.datapackage_checksums,
             &options.data_package_location,
-        );
-        if !packages.failed_games.is_empty() {
+        )
+        .await;
+        // Determine which games we are missing by comparing the checksums received and what has been loaded
+        let missing: Vec<_> = room_info
+            .datapackage_checksums
+            .keys()
+            .filter(|k| !packages.contains_key(*k))
+            .map(|k| k.to_string())
+            .collect();
+        if !missing.is_empty() {
             log::debug!("Awaiting DataPackage...");
             socket.send(ClientMessage::GetDataPackage(GetDataPackage {
-                games: Some(packages.failed_games),
+                games: Some(missing),
             }))?;
             let received_dp = match socket.recv_async().await? {
                 ServerMessage::DataPackage(DataPackage { data }) => data,
@@ -144,15 +152,13 @@ impl<S: DeserializeOwned> Client<S> {
             };
             log::debug!("Writing new entries to cache...");
             if let Err(err) =
-                cache::write_to_cache(&received_dp.games, &options.data_package_location)
+                cache::write_to_cache(&received_dp.games, &options.data_package_location).await
             {
                 log::error!("Failed to write entries to cache: {}", err);
             }
-            packages.data_packages.extend(received_dp.games);
+            packages.extend(received_dp.games);
         }
-        let data_package = DataPackageObject {
-            games: packages.data_packages,
-        };
+        let data_package = DataPackageObject { games: packages };
         log::debug!("Awaiting Connected...");
         let mut version = VERSION.clone();
         version.class = "Version".into();
