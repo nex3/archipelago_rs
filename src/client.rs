@@ -1,7 +1,6 @@
+use serde::de::DeserializeOwned;
 use std::collections::{HashMap, VecDeque};
 use std::{mem, ptr, sync::Arc, time::SystemTime};
-
-use serde::de::DeserializeOwned;
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
@@ -124,22 +123,39 @@ impl<S: DeserializeOwned> Client<S> {
             }
         };
 
-        // TODO: cache data packages and only ask for those that are outdated.
-        log::debug!("Awaiting DataPackage...");
-        socket.send(ClientMessage::GetDataPackage(GetDataPackage {
-            games: None,
-        }))?;
-
-        let data_package = match socket.recv_async().await? {
-            ServerMessage::DataPackage(DataPackage { data }) => data,
-            message => {
-                return Err(ProtocolError::UnexpectedResponse {
-                    actual: message.type_name(),
-                    expected: "DataPackage",
+        log::debug!("Loading Cached DataPackages...");
+        let cache = options.cache.unwrap_or_default();
+        let mut packages = cache
+            .load_data_packages(&room_info.datapackage_checksums)
+            .await;
+        // Determine which games we are missing by comparing the checksums
+        // received with what we found in the cache.
+        let missing = room_info
+            .datapackage_checksums
+            .keys()
+            .filter(|k| !packages.contains_key(*k))
+            .map(|k| k.to_string())
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            log::debug!("Awaiting DataPackage...");
+            socket.send(ClientMessage::GetDataPackage(GetDataPackage {
+                games: Some(missing),
+            }))?;
+            let received_dp = match socket.recv_async().await? {
+                ServerMessage::DataPackage(DataPackage { data }) => data,
+                message => {
+                    return Err(ProtocolError::UnexpectedResponse {
+                        actual: message.type_name(),
+                        expected: "DataPackage",
+                    }
+                    .into());
                 }
-                .into());
-            }
-        };
+            };
+            log::debug!("Writing new entries to cache...");
+            cache.store_data_packages(&received_dp.games).await;
+            packages.extend(received_dp.games);
+        }
+        let data_package = DataPackageObject { games: packages };
 
         log::debug!("Awaiting Connected...");
         let mut version = VERSION.clone();
