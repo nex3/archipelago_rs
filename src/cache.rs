@@ -1,6 +1,5 @@
-use std::{env, path::PathBuf};
-
 use smol::fs;
+use std::{env, path::PathBuf};
 use ustr::UstrMap;
 
 use crate::{protocol::GameData, util};

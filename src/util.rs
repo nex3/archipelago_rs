@@ -1,7 +1,6 @@
+use smol::{fs, io};
 use std::path::{Path, PathBuf};
 use std::{fmt::Debug, iter::FusedIterator};
-
-use smol::{fs, io};
 
 mod signed_duration;
 
@@ -44,7 +43,7 @@ pub(crate) async fn write_file_atomic(
     if let Some(ext) = path.extension() {
         tmp_basename.push(ext);
     }
-
+    tmp_path.push(tmp_basename);
     fs::write(&tmp_path, contents).await?;
     fs::rename(tmp_path, path).await?;
 
