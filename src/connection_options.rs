@@ -1,6 +1,6 @@
 use ustr::{Ustr, UstrSet};
 
-use crate::{protocol::ItemsHandlingFlags, Cache};
+use crate::{Cache, protocol::ItemsHandlingFlags};
 
 /// A builder that defines options for
 /// [Connection::new](crate::Connection::new).

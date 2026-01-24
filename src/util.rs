@@ -31,12 +31,15 @@ pub(crate) async fn write_file_atomic(
     let mut tmp_path = PathBuf::from(path);
     tmp_path.pop();
 
-    let mut tmp_basename = path.file_stem().unwrap_or_else(|| {
-        panic!(
-            "write_file_atomic path must have a basename, was {:?}",
-            path
-        )
-    }).to_owned();
+    let mut tmp_basename = path
+        .file_stem()
+        .unwrap_or_else(|| {
+            panic!(
+                "write_file_atomic path must have a basename, was {:?}",
+                path
+            )
+        })
+        .to_owned();
     tmp_basename.push(format!("-tmp-{:0}", rand::random::<u32>()));
     if let Some(ext) = path.extension() {
         tmp_basename.push(ext);

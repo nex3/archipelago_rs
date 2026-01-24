@@ -4,9 +4,9 @@ use std::{mem, ptr, sync::Arc, time::SystemTime};
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
-    protocol::*, ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group,
-    ItemHandling, Iter, LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem,
-    SignedDuration, Socket, UnsizedIter, UpdatedField, Version,
+    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
+    LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
+    UnsizedIter, UpdatedField, Version, protocol::*,
 };
 
 mod bounce_options;

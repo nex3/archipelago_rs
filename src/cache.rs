@@ -66,7 +66,8 @@ impl Cache {
         &self,
         checksums: &UstrMap<String>,
     ) -> UstrMap<GameData> {
-        let mut data_packages = UstrMap::with_capacity_and_hasher(checksums.len(), Default::default());
+        let mut data_packages =
+            UstrMap::with_capacity_and_hasher(checksums.len(), Default::default());
         let dir = self.data_package_path();
         for (game, checksum) in checksums {
             let path = dir.join(game).join(format!("{checksum}.json"));
