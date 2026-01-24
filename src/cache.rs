@@ -1,113 +1,143 @@
-use crate::protocol::GameData;
+use std::{env, path::PathBuf};
+
 use smol::fs;
-use std::collections::HashMap;
-use std::env;
-use std::error::Error;
-use std::ops::Deref;
-use std::path::PathBuf;
-use std::sync::LazyLock;
-use ustr::{Ustr, UstrMap};
+use ustr::UstrMap;
 
-/// Archipelago's Shared Cache folder
-pub static AP_CACHE: LazyLock<PathBuf> = LazyLock::new(|| {
-    platform_cache_dir().unwrap_or_else(|| {
-        env::current_dir()
-            .expect("failed to determine current working directory")
-            .join("Archipelago")
-            .join("Cache")
-    })
-});
+use crate::{protocol::GameData, util};
 
-// This could be merged with the static above, but separate for now in the event we also add support for the common cache
-pub static AP_DATA_PACKAGE_CACHE: LazyLock<PathBuf> =
-    LazyLock::new(|| AP_CACHE.join("datapackage"));
+/// The cache in which we store data packages to avoid requesting them every
+/// time the client starts.
+pub struct Cache(PathBuf);
 
-fn platform_cache_dir() -> Option<PathBuf> {
-    #[cfg(target_os = "windows")]
-    {
-        env::var_os("LOCALAPPDATA")
-            .map(PathBuf::from)
-            .map(|p| p.join("Archipelago").join("Cache"))
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        env::var_os("HOME").map(PathBuf::from).map(|h| {
-            h.join("Library")
-                .join("Caches")
+impl Cache {
+    /// Returns a cache that uses Archipelago's system-wide shared directory.
+    /// This allows the client to share datapackages with other games, even if
+    /// they use other client libraries.
+    pub fn shared() -> Self {
+        Self(Self::platform_cache_dir().unwrap_or_else(|| {
+            env::current_dir()
+                .expect("failed to determine current working directory")
                 .join("Archipelago")
                 .join("Cache")
-        })
+        }))
     }
 
-    #[cfg(target_os = "linux")]
-    {
-        env::var_os("XDG_CACHE_HOME")
-            .map(PathBuf::from)
-            .or_else(|| env::home_dir().map(|h| h.join(".cache")))
-            .map(|p| p.join("Archipelago").join("Cache"))
+    /// Returns a cache that uses a custom filesystem path.
+    pub fn path(path: impl Into<PathBuf>) -> Self {
+        Self(path.into())
     }
-}
 
-/// Checks each checksum against the shared archipelago cache to see if it's valid.
-/// Returns a map containing each successfully loaded data package
-pub(crate) async fn validate_and_load_data_packages(
-    checksums: &UstrMap<String>,
-    cache_path: &Option<PathBuf>,
-) -> HashMap<Ustr, GameData> {
-    let mut data_packages = HashMap::new();
-    let path = cache_path
-        .as_ref()
-        .unwrap_or_else(|| AP_DATA_PACKAGE_CACHE.deref());
-    for (game_name, checksum) in checksums {
-        // Utilize the custom path if specified, otherwise use the default Archipelago Shared Cache
-        let dp_file = path.join(game_name).join(format!("{checksum}.json"));
+    /// Returns the default Archipelago cache directory for the current
+    /// operating system.
+    fn platform_cache_dir() -> Option<PathBuf> {
+        #[cfg(target_os = "windows")]
+        {
+            env::var_os("LOCALAPPDATA")
+                .map(PathBuf::from)
+                .map(|p| p.join("Archipelago").join("Cache"))
+        }
 
-        let file = match fs::read_to_string(&dp_file).await {
-            Ok(f) => f,
-            Err(err) => {
-                log::error!("Missing or unreadable cache for {}: {}", game_name, err);
-                continue;
-            }
-        };
+        #[cfg(target_os = "macos")]
+        {
+            env::var_os("HOME").map(PathBuf::from).map(|h| {
+                h.join("Library")
+                    .join("Caches")
+                    .join("Archipelago")
+                    .join("Cache")
+            })
+        }
 
-        // Have to specify generics
-        match serde_json::from_str::<GameData>(&file) {
-            Ok(data) => {
-                // Final checksum check
-                if data.checksum.eq(checksum) {
-                    data_packages.insert(*game_name, data);
+        #[cfg(target_os = "linux")]
+        {
+            env::var_os("XDG_CACHE_HOME")
+                .map(PathBuf::from)
+                .or_else(|| env::home_dir().map(|h| h.join(".cache")))
+                .map(|p| p.join("Archipelago").join("Cache"))
+        }
+    }
+
+    /// Returns a map from game names to the cached game data for those games.
+    ///
+    /// `checksums` is a map from the names of games to load to checksums for
+    /// each of those games. These checksums indicate the expected versions each
+    /// game. If the cache doesn't have a [GameData] for a game with a matching
+    /// checksum, that game won't be returned.
+    pub(crate) async fn load_data_packages(
+        &self,
+        checksums: &UstrMap<String>,
+    ) -> UstrMap<GameData> {
+        let mut data_packages = UstrMap::with_capacity_and_hasher(checksums.len(), Default::default());
+        let dir = self.data_package_path();
+        for (game, checksum) in checksums {
+            let path = dir.join(game).join(format!("{checksum}.json"));
+
+            let file = match fs::read_to_string(&path).await {
+                Ok(f) => f,
+                Err(err) => {
+                    log::error!("Missing or unreadable cache for {}: {}", game, err);
+                    continue;
+                }
+            };
+
+            match serde_json::from_str::<GameData>(&file) {
+                // Double-check that the checksum is accurate
+                Ok(data) if data.checksum.eq(checksum) => {
+                    data_packages.insert(*game, data);
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    log::error!(
+                        "Failed to deserialize cached data package for {}: {}",
+                        game,
+                        err
+                    );
                 }
             }
-            Err(err) => {
-                log::error!(
-                    "Failed to deserialize cached data package for {}: {}",
-                    game_name,
-                    err
-                );
+        }
+        data_packages
+    }
+
+    /// Stores `data_packages`, a map from game names to data packages, in the
+    /// cache.
+    pub(crate) async fn store_data_packages(&self, data_packages: &UstrMap<GameData>) {
+        let dir = self.data_package_path();
+        for (game, data) in data_packages {
+            let game_dir = dir.join(game);
+
+            if let Err(err) = fs::create_dir_all(&game_dir).await {
+                log::error!("Failed to create cache directory {game_dir:?}: {err}");
+                // If one directory fails to create, chances are the others will
+                // as well.
+                return;
+            }
+
+            let serialized = match serde_json::to_string(&data) {
+                Ok(r) => r,
+                Err(err) => {
+                    log::error!("Failed to serialize data package for {game}: {err}");
+                    continue;
+                }
+            };
+
+            let path = game_dir.join(format!("{}.json", data.checksum));
+            if let Err(err) = util::write_file_atomic(&path, serialized).await {
+                log::error!("Failed to write cached data package to {path:?}: {err}");
             }
         }
     }
 
-    data_packages
+    /// Returns the subdirectory that should contain datapackages.
+    fn data_package_path(&self) -> PathBuf {
+        // We could just use this as the root of the cache, but this is more
+        // forward-compatible with the possibility of caching other data in the
+        // future.
+        self.0.join("datapackage")
+    }
 }
 
-/// Write the acquired data package information to the specified cache
-pub(crate) async fn write_to_cache(
-    data_package: &HashMap<Ustr, GameData>,
-    cache_path: &Option<PathBuf>,
-) -> Result<(), Box<dyn Error>> {
-    let data_package_path = cache_path
-        .as_ref()
-        .unwrap_or_else(|| AP_DATA_PACKAGE_CACHE.deref());
-    for (game_name, data) in data_package {
-        let game_path = data_package_path.join(game_name);
-        fs::create_dir_all(&game_path).await?;
-        fs::write(
-            game_path.join(format!("{}.json", data.checksum)),
-            serde_json::to_string(&data)?,
-        )
-        .await?;
+impl Default for Cache {
+    /// Returns [Cache::shared].
+    fn default() -> Self {
+        Cache::shared()
     }
-    Ok(())
 }

@@ -485,7 +485,7 @@ pub(crate) struct DataPackage {
 
 #[derive(Debug, Clone, Deserialize)]
 pub(crate) struct DataPackageObject {
-    pub(crate) games: HashMap<Ustr, GameData>,
+    pub(crate) games: UstrMap<GameData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -1,7 +1,6 @@
-use std::path::PathBuf;
 use ustr::{Ustr, UstrSet};
 
-use crate::protocol::ItemsHandlingFlags;
+use crate::{protocol::ItemsHandlingFlags, Cache};
 
 /// A builder that defines options for
 /// [Connection::new](crate::Connection::new).
@@ -10,7 +9,7 @@ pub struct ConnectionOptions {
     pub(crate) item_handling: ItemHandling,
     pub(crate) tags: UstrSet,
     pub(crate) slot_data: bool,
-    pub(crate) data_package_location: Option<PathBuf>,
+    pub(crate) cache: Option<Cache>,
 }
 
 impl ConnectionOptions {
@@ -21,7 +20,7 @@ impl ConnectionOptions {
             item_handling: Default::default(),
             tags: Default::default(),
             slot_data: true,
-            data_package_location: None,
+            cache: None,
         }
     }
 
@@ -50,11 +49,11 @@ impl ConnectionOptions {
         self
     }
 
-    /// Specify where cached data packages should be stored
+    /// Specify where cached data should be stored.
     ///
-    /// By default, this will write to Archipelago's Shared Cache
-    pub fn data_package_location(mut self, location: impl Into<PathBuf>) -> Self {
-        self.data_package_location = Some(location.into());
+    /// By default, this will write to Archipelago's shared cache directory.
+    pub fn cache(mut self, cache: Cache) -> Self {
+        self.cache = Some(cache);
         self
     }
 }

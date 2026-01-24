@@ -4,9 +4,9 @@ use std::{mem, ptr, sync::Arc, time::SystemTime};
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
-    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
-    LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
-    UnsizedIter, UpdatedField, Version, cache, protocol::*,
+    protocol::*, ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group,
+    ItemHandling, Iter, LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem,
+    SignedDuration, Socket, UnsizedIter, UpdatedField, Version,
 };
 
 mod bounce_options;
@@ -122,19 +122,20 @@ impl<S: DeserializeOwned> Client<S> {
                 .into());
             }
         };
+
         log::debug!("Loading Cached DataPackages...");
-        let mut packages = cache::validate_and_load_data_packages(
-            &room_info.datapackage_checksums,
-            &options.data_package_location,
-        )
-        .await;
-        // Determine which games we are missing by comparing the checksums received and what has been loaded
-        let missing: Vec<_> = room_info
+        let cache = options.cache.unwrap_or_default();
+        let mut packages = cache
+            .load_data_packages(&room_info.datapackage_checksums)
+            .await;
+        // Determine which games we are missing by comparing the checksums
+        // received with what we found in the cache.
+        let missing = room_info
             .datapackage_checksums
             .keys()
             .filter(|k| !packages.contains_key(*k))
             .map(|k| k.to_string())
-            .collect();
+            .collect::<Vec<_>>();
         if !missing.is_empty() {
             log::debug!("Awaiting DataPackage...");
             socket.send(ClientMessage::GetDataPackage(GetDataPackage {
@@ -151,14 +152,11 @@ impl<S: DeserializeOwned> Client<S> {
                 }
             };
             log::debug!("Writing new entries to cache...");
-            if let Err(err) =
-                cache::write_to_cache(&received_dp.games, &options.data_package_location).await
-            {
-                log::error!("Failed to write entries to cache: {}", err);
-            }
+            cache.store_data_packages(&received_dp.games).await;
             packages.extend(received_dp.games);
         }
         let data_package = DataPackageObject { games: packages };
+
         log::debug!("Awaiting Connected...");
         let mut version = VERSION.clone();
         version.class = "Version".into();

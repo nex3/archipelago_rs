@@ -8,6 +8,7 @@ mod event;
 mod protocol;
 mod util;
 
+pub use cache::*;
 pub use client::*;
 pub use connection::*;
 pub use connection_options::*;
