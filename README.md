@@ -12,7 +12,7 @@ bots or other tools.
 
 This library uses a non-blocking style. The caller must manually poll for new
 events using `Connection.update` or `Client.update`. In exchange, the client
-never block on the network connection and so it can safely be used within a
+never blocks on the network connection and so it can safely be used within a
 game's main loop without having to be run on a separate thread.
 
 In most cases, messages from the server are surfaced to the caller as `Event`
