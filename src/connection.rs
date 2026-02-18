@@ -1,5 +1,5 @@
-use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
+use std::{fmt, pin::Pin};
 
 use serde::de::DeserializeOwned;
 use smol::future::FutureExt;
@@ -7,9 +7,16 @@ use ustr::Ustr;
 
 use crate::{Client, ConnectionOptions, Event, error::*};
 
+mod non_blocking_web_socket;
 mod socket;
+mod threaded_web_socket;
+mod web_socket;
 
+pub(crate) use non_blocking_web_socket::*;
 pub(crate) use socket::*;
+pub(crate) use threaded_web_socket::*;
+pub use web_socket::SocketMode;
+pub(crate) use web_socket::*;
 
 /// A connection to the Archipelago server. This includes connections that are
 /// still being established as well as connections that have been closed.
@@ -206,6 +213,12 @@ impl<S: DeserializeOwned + 'static> Default for ConnectionState<S> {
     /// [Error::ClientDisconnected].
     fn default() -> Self {
         ConnectionState::Disconnected(Error::ClientDisconnected)
+    }
+}
+
+impl<S: DeserializeOwned + 'static> fmt::Debug for ConnectionState<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.state_type().fmt(f)
     }
 }
 

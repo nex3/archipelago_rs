@@ -97,12 +97,12 @@ impl<S: DeserializeOwned> Client<S> {
     ) -> Result<Client<S>, Error> {
         let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
         {
-            Socket::<S>::connect(url).await?
+            Socket::<S>::connect(url, options.mode).await?
         } else {
-            match Socket::<S>::connect(format!("wss://{}", url)).await {
+            match Socket::<S>::connect(format!("wss://{}", url), options.mode).await {
                 Ok(socket) => socket,
                 Err(Error::WebSocket(err)) => {
-                    match Socket::<S>::connect(format!("wss://{}", url)).await {
+                    match Socket::<S>::connect(format!("wss://{}", url), options.mode).await {
                         Ok(socket) => socket,
                         Err(_) => return Err(err.into()),
                     }

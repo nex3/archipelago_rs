@@ -1,6 +1,6 @@
 use ustr::{Ustr, UstrSet};
 
-use crate::{Cache, protocol::ItemsHandlingFlags};
+use crate::{Cache, SocketMode, protocol::ItemsHandlingFlags};
 
 /// A builder that defines options for
 /// [Connection::new](crate::Connection::new).
@@ -10,6 +10,7 @@ pub struct ConnectionOptions {
     pub(crate) tags: UstrSet,
     pub(crate) slot_data: bool,
     pub(crate) cache: Option<Cache>,
+    pub(crate) mode: SocketMode,
 }
 
 impl ConnectionOptions {
@@ -21,6 +22,7 @@ impl ConnectionOptions {
             tags: Default::default(),
             slot_data: true,
             cache: None,
+            mode: Default::default(),
         }
     }
 
@@ -54,6 +56,14 @@ impl ConnectionOptions {
     /// By default, this will write to Archipelago's shared cache directory.
     pub fn cache(mut self, cache: Cache) -> Self {
         self.cache = Some(cache);
+        self
+    }
+
+    /// Sets how the underlying web socket runs. By default, this uses
+    /// non-blocking IO everywhere except as a Windows executable running under
+    /// Wine/Proton, in which case it uses a threaded implementation.
+    pub fn mode(mut self, mode: SocketMode) -> Self {
+        self.mode = mode;
         self
     }
 }

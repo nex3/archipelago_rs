@@ -1,6 +1,11 @@
-use smol::{fs, io};
+#[cfg(unix)]
+use std::os::unix::io::AsFd;
+#[cfg(windows)]
+use std::os::windows::io::AsSocket;
 use std::path::{Path, PathBuf};
-use std::{fmt::Debug, iter::FusedIterator};
+use std::{fmt::Debug, iter::FusedIterator, net::TcpStream};
+
+use smol::{fs, io};
 
 mod signed_duration;
 
@@ -48,4 +53,15 @@ pub(crate) async fn write_file_atomic(
     fs::rename(tmp_path, path).await?;
 
     Ok(())
+}
+
+/// Clones `stream`, which must be a TCP socket, into a new [TcpStream].
+#[cfg(unix)]
+pub(crate) fn clone_tcp_stream(stream: impl AsFd) -> io::Result<TcpStream> {
+    Ok(TcpStream::from(stream.as_fd().try_clone_to_owned()?))
+}
+
+#[cfg(windows)]
+pub(crate) fn clone_tcp_stream(stream: impl AsSocket) -> io::Result<TcpStream> {
+    Ok(TcpStream::from(stream.as_socket().try_clone_to_owned()?))
 }

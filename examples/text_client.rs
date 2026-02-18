@@ -37,6 +37,12 @@ struct ArchipelagoClient {
 
 impl eframe::App for ArchipelagoClient {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        // Force the app to continually paint new frames so that we don't starve
+        // the Archipelago connection. If you're running as part of a game's UI
+        // loop, you don't need to worry about this, since the game will render
+        // many frames per second anyway.
+        ctx.request_repaint();
+
         for event in self.connection.update() {
             if let ap::Event::Print(print) = event {
                 self.prints.push(print);
