@@ -9,6 +9,7 @@ use crate::{Error, Location, Player, Print, protocol::Permission};
 /// This only encompasses events that can be spontaneously sent by the server.
 /// Events that are only ever sent as replies to client requests are represented
 /// as [Future]s instead.
+#[derive(Debug)]
 pub enum Event {
     /// The client has established a successful connection. This is only emitted
     /// from [Connection.update] and only once, always as the first event.
@@ -117,6 +118,7 @@ pub enum Event {
 
 /// An enum that indicates exactly what in a [Client](crate::Client) was
 /// updated.
+#[derive(Debug)]
 pub enum UpdatedField {
     /// [Client.server_tags] changed.
     ///

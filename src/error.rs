@@ -25,6 +25,11 @@ pub enum Error {
     #[error("Rust panic during connection process")]
     ConnectionInterrupted,
 
+    /// The thread on which the client's socket connection was running was
+    /// killed unexpectedly. This can only happen when running in threaded mode.
+    #[error("the client's socket thread was killed")]
+    ThreadKilled,
+
     /// The caller violated a contract when calling a [Client](crate::Client)
     /// method.
     #[error("{0}")]
