@@ -1,13 +1,19 @@
+use log::*;
+#[cfg(feature = "native-tls")]
+use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector, TlsStream};
+#[cfg(feature = "rustls")]
+use rustls::{
+    ClientConfig, ClientConnection, KeyLogFile, RootCertStore, OtherError,
+    pki_types::{IpAddr, ServerName},
+};
+use serde::de::DeserializeOwned;
+use smol::{Async, net::TcpStream as AsyncTcpStream};
+use std::net::TcpStream;
 #[cfg(unix)]
 use std::os::unix::io::AsFd;
 #[cfg(windows)]
 use std::os::windows::io::AsSocket;
 use std::{collections::VecDeque, io, net::TcpStream as SyncTcpStream, sync::Arc};
-
-use log::*;
-use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector, TlsStream};
-use serde::de::DeserializeOwned;
-use smol::{Async, net::TcpStream as AsyncTcpStream};
 use tungstenite::HandshakeError as WsHandshakeError;
 use tungstenite::client::IntoClientRequest;
 use tungstenite::error::{TlsError, UrlError};
@@ -63,10 +69,28 @@ impl<S: DeserializeOwned> Socket<S> {
             }
             Mode::Tls => {
                 debug!("Upgrading to TLS...");
-                match Self::try_tls(async_stream.as_ref(), stream, domain.as_str()).await {
+                #[cfg(feature = "native-tls")]
+                match Self::try_native_tls(async_stream.as_ref(), stream, domain.as_str()).await {
                     Ok(stream) => {
                         debug!("Upgrading to WebSocket...");
                         MaybeTlsStream::NativeTls(stream)
+                    }
+                    Err(Error::WebSocket(tungstenite::Error::Tls(err))) => {
+                        debug!(
+                            "Upgrading to TLS failed ({err}), attempting plain TCP connection..."
+                        );
+                        let (stream, async_stream_) = Self::connect_tcp(&domain, port).await?;
+                        async_stream = async_stream_;
+                        debug!("Upgrading to WebSocket...");
+                        MaybeTlsStream::Plain(stream)
+                    }
+                    Err(err) => return Err(err),
+                }
+                #[cfg(feature = "rustls")]
+                match Self::try_rust_tls(async_stream.as_ref(), stream, domain.clone()).await {
+                    Ok(stream) => {
+                        debug!("Upgrading to WebSocket...");
+                        MaybeTlsStream::Rustls(stream)
                     }
                     Err(Error::WebSocket(tungstenite::Error::Tls(err))) => {
                         debug!(
@@ -140,11 +164,13 @@ impl<S: DeserializeOwned> Socket<S> {
     }
 
     /// Attempts to upgrade `stream` to TLS.
-    async fn try_tls(
+    #[cfg(feature = "native-tls")]
+    async fn try_native_tls(
         async_stream: &Async<SyncTcpStream>,
         stream: SyncTcpStream,
         domain: impl AsRef<str>,
     ) -> Result<TlsStream<SyncTcpStream>, Error> {
+        info!("Using nativels!");
         let connector = TlsConnector::new()
             .map_err(|e| tungstenite::Error::Tls(TlsError::Native(Box::new(e))))?;
         let mut handshake = connector.connect(domain.as_ref(), stream);
@@ -163,6 +189,51 @@ impl<S: DeserializeOwned> Socket<S> {
                 }
             }
         }
+    }
+
+    #[cfg(feature = "rustls")]
+    /// Attempts to upgrade `stream` to TLS.
+    async fn try_rust_tls(
+        async_stream: &Async<SyncTcpStream>,
+        mut stream: SyncTcpStream,
+        domain: String,
+    ) -> Result<rustls::StreamOwned<ClientConnection, TcpStream>, Error> {
+        let mut root_store = RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+        let mut config = ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+
+        config.key_log = Arc::new(KeyLogFile::new());
+        let domain = domain.clone();
+        let server_name = ServerName::try_from(domain.clone())
+            .or_else(|_| IpAddr::try_from(domain.clone().as_str()).map(ServerName::from))
+            .map_err(|_| {
+                tungstenite::Error::Tls(TlsError::Rustls(Box::new(rustls::Error::General(
+                    "Invalid DNS name or IP address".into(),
+                ))))
+            })?;
+
+        let mut conn = ClientConnection::new(Arc::new(config), server_name)
+            .map_err(|e| tungstenite::Error::Tls(TlsError::Rustls(Box::new(e))))?;
+
+        while conn.is_handshaking() {
+            match conn.complete_io(&mut stream) {
+                Ok(_) => {}
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                    async_stream.readable().await?;
+                }
+                Err(e) => {
+                    return Err(tungstenite::Error::Tls(TlsError::Rustls(Box::new(
+                        rustls::Error::Other(OtherError(Arc::new(e))),
+                    )))
+                    .into());
+                }
+            }
+        }
+
+        Ok(rustls::StreamOwned::new(conn, stream))
     }
 
     /// Returns the next message from this socket, if one is available.
