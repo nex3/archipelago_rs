@@ -24,7 +24,7 @@ const DEFAULT_PORT: u16 = 38281;
 
 /// A WebSocket wrapper that receives Archipelago protocol messages from the
 /// server and decodes them.
-pub(crate) struct Socket<S: DeserializeOwned> {
+pub(crate) struct Socket<S: DeserializeOwned + 'static> {
     /// The async wrapper for the TCP stream. We use this to determine when it's
     /// readable and writable.
     async_stream: Arc<Async<SyncTcpStream>>,
@@ -37,7 +37,7 @@ pub(crate) struct Socket<S: DeserializeOwned> {
     messages: VecDeque<ServerMessage<S>>,
 }
 
-impl<S: DeserializeOwned> Socket<S> {
+impl<S: DeserializeOwned + 'static> Socket<S> {
     /// Begins the process of establishing a WebSocket connection using the
     /// given [request] (which may be passed as a simple `ws://` or `wss://`
     /// URL).
