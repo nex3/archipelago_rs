@@ -4,7 +4,7 @@ use std::{mem, ptr, sync::Arc, time::SystemTime};
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
-    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
+    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, ItemHandling, Iter,
     LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
     UnsizedIter, UpdatedField, Version, protocol::*,
 };
@@ -51,7 +51,6 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     seed_name: String,
     games: UstrMap<Game>,
     slot_data: S,
-    groups: Vec<NetworkSlot>,
 
     /// The difference between the server's notion of the current time and ours.
     /// We use this to normalize timestamps, under the assumption that they
@@ -63,9 +62,6 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
 
     /// The key for the current player in [players].
     player_key: (u32, u32),
-
-    /// The number of teams in this multiworld.
-    teams: u32,
 
     /// A map from location IDs for this game to booleans indicating whether or
     /// not they've been checked.
@@ -200,7 +196,7 @@ impl<S: DeserializeOwned> Client<S> {
         game: Ustr,
         room_info: RoomInfo,
         data_package: DataPackageObject,
-        mut connected: Connected<S>,
+        connected: Connected<S>,
     ) -> Result<Self, Error> {
         let server_skew = SignedDuration::difference(SystemTime::now(), room_info.time);
         let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
@@ -213,33 +209,18 @@ impl<S: DeserializeOwned> Client<S> {
             .ok_or(ProtocolError::EmptyPlayers)?
             + 1;
 
-        let groups = connected
-            .slot_info
-            .extract_if(|_, slot| slot.r#type == SlotType::Group)
-            .map(|(_, slot)| slot)
-            .collect::<Vec<_>>();
-        for group in &groups {
-            for member in &group.group_members {
-                if !connected.slot_info.contains_key(member) {
-                    return Err(ProtocolError::MissingSlotInfo(*member).into());
-                }
-            }
+        let mut players = HashMap::<(u32, u32), Arc<Player>>::new();
+        for player in connected.players {
+            let slot_info = connected
+                .slot_info
+                .get(&player.slot)
+                .ok_or(ProtocolError::MissingSlotInfo(player.slot))?;
+            // Groups always come after players in the slot list and can't
+            // contain other groups, so only considering the players we've
+            // already hydrated should be safe.
+            let player = Player::hydrate(player, slot_info, &players)?;
+            players.insert((player.team(), player.slot()), player.into());
         }
-
-        let mut players = connected
-            .players
-            .into_iter()
-            .map(|p| {
-                let game = connected
-                    .slot_info
-                    .get(&p.slot)
-                    .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
-                    .ok_or(ProtocolError::MissingSlotInfo(p.slot))?
-                    .game;
-                let player = Player::hydrate(p, game);
-                Ok(((player.team(), player.slot()), player.into()))
-            })
-            .collect::<Result<HashMap<(u32, u32), Arc<Player>>, Error>>()?;
         for team in 0..teams {
             players.insert((team, 0), Player::archipelago(team).into());
         }
@@ -294,11 +275,9 @@ impl<S: DeserializeOwned> Client<S> {
             seed_name: room_info.seed_name,
             games,
             slot_data: connected.slot_data,
-            groups,
             server_skew,
             players,
             player_key,
-            teams,
             local_locations_checked,
             received_items: Default::default(),
             location_scout_senders: Default::default(),
@@ -472,27 +451,6 @@ impl<S: DeserializeOwned> Client<S> {
     /// if this player doesn't exist.
     pub fn assert_teammate(&self, slot: u32) -> &Player {
         self.assert_player(self.player_key.0, slot)
-    }
-
-    /// The groups on the given `team`, if such a team exists.
-    pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
-        if team >= self.teams {
-            None
-        } else {
-            Some(
-                self.groups
-                    .iter()
-                    .map(move |g| Group::hydrate(g, team, self)),
-            )
-        }
-    }
-
-    /// The groups on the current player's.
-    pub fn teammate_groups(&self) -> impl Iter<Group> {
-        let team = self.player_key.0;
-        self.groups
-            .iter()
-            .map(move |g| Group::hydrate(g, team, self))
     }
 
     /// Returns whether the local location with the given ID has been checked
@@ -1065,13 +1023,7 @@ impl<S: DeserializeOwned> Client<S> {
                                 team: new.team,
                                 slot: new.slot,
                             })
-                            .map(|old| {
-                                if old.alias() == new.alias {
-                                    None
-                                } else {
-                                    Some(Player::hydrate(new, old.game()))
-                                }
-                            })
+                            .map(|old| old.with_alias(new.alias))
                             .transpose()
                     })
                     .collect::<Result<Vec<_>, ProtocolError>>()
