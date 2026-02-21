@@ -1,8 +1,12 @@
-use std::mem;
+use std::{collections::VecDeque, mem};
 
 use archipelago_rs as ap;
-use eframe::egui::*;
+use eframe::{Storage, egui::*};
+use serde::{Deserialize, Serialize};
 use simplelog::{ColorChoice, LevelFilter, TermLogger, TerminalMode};
+
+/// The maximum number of prints to store at once.
+const PRINT_BUFFER: usize = 0x2000;
 
 fn main() -> Result<(), anyhow::Error> {
     TermLogger::init(
@@ -20,7 +24,18 @@ fn main() -> Result<(), anyhow::Error> {
     eframe::run_native(
         "Archipelago Example",
         options,
-        Box::new(|_| Ok(Box::<ArchipelagoClient>::default())),
+        Box::new(|ctx| {
+            Ok(Box::new(ArchipelagoClient {
+                connect_popup: ctx
+                    .storage
+                    .and_then(|s| s.get_string("connect_popup"))
+                    .as_deref()
+                    .map(serde_json::from_str)
+                    .map(Result::unwrap_or_default)
+                    .unwrap_or_default(),
+                ..Default::default()
+            }))
+        }),
     )
     .unwrap();
 
@@ -30,16 +45,25 @@ fn main() -> Result<(), anyhow::Error> {
 #[derive(Default)]
 struct ArchipelagoClient {
     connection: ap::Connection<()>,
-    connect_popup: Option<ConnectPopup>,
-    prints: Vec<ap::Print>,
+    connect_popup: ConnectPopup,
+    prints: VecDeque<ap::Print>,
     message: String,
 }
 
 impl eframe::App for ArchipelagoClient {
     fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+        // Force the app to continually paint new frames so that we don't starve
+        // the Archipelago connection. If you're running as part of a game's UI
+        // loop, you don't need to worry about this, since the game will render
+        // many frames per second anyway.
+        ctx.request_repaint();
+
         for event in self.connection.update() {
             if let ap::Event::Print(print) = event {
-                self.prints.push(print);
+                if self.prints.len() >= PRINT_BUFFER {
+                    self.prints.pop_front();
+                }
+                self.prints.push_back(print);
             }
         }
 
@@ -62,7 +86,7 @@ impl eframe::App for ArchipelagoClient {
             match self.connection.state_mut() {
                 ap::ConnectionState::Disconnected(_) => {
                     if ui.button("Connect").clicked() {
-                        self.connect_popup = Some(Default::default());
+                        self.connect_popup.visible = true;
                     }
                 }
                 ap::ConnectionState::Connected(client) => {
@@ -87,23 +111,33 @@ impl eframe::App for ArchipelagoClient {
             }
         });
 
-        if let Some(popup) = &mut self.connect_popup {
-            let response = popup.update(ctx, frame);
+        if self.connect_popup.visible {
+            let response = self.connect_popup.update(ctx, frame);
             if let Some(connection) = response.inner {
-                self.connect_popup = None;
+                self.connect_popup.visible = false;
                 self.connection = connection;
             } else if response.should_close() {
-                self.connect_popup = None;
+                self.connect_popup.visible = false;
             }
         }
     }
+
+    fn save(&mut self, storage: &mut dyn Storage) {
+        storage.set_string(
+            "connect_popup",
+            serde_json::to_string(&self.connect_popup).unwrap_or_default(),
+        )
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Serialize, Deserialize)]
 struct ConnectPopup {
     url: String,
     game: String,
     slot: String,
+
+    #[serde(skip)]
+    visible: bool,
 }
 
 impl ConnectPopup {

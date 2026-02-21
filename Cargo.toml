@@ -29,6 +29,6 @@ try-specialize = "0.1.2"
 
 [dev-dependencies]
 anyhow = "1.0"
-eframe = "0.33.3"
+eframe = { version = "0.33.3", features = ["persistence"] }
 egui = "0.33.3"
 simplelog = "0.12.2"
