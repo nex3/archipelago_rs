@@ -44,7 +44,7 @@ fn main() -> Result<(), anyhow::Error> {
 
 #[derive(Default)]
 struct ArchipelagoClient {
-    connection: ap::Connection,
+    connection: ap::Connection<()>,
     connect_popup: ConnectPopup,
     prints: VecDeque<ap::Print>,
     message: String,
@@ -144,7 +144,7 @@ impl ConnectPopup {
         &mut self,
         ctx: &Context,
         _: &mut eframe::Frame,
-    ) -> ModalResponse<Option<ap::Connection>> {
+    ) -> ModalResponse<Option<ap::Connection<()>>> {
         Modal::new(Id::new("connect-popup")).show(ctx, |ui| {
             let responses = [
                 ui.horizontal(|ui| {

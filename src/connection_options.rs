@@ -8,7 +8,6 @@ pub struct ConnectionOptions {
     pub(crate) password: Option<String>,
     pub(crate) item_handling: ItemHandling,
     pub(crate) tags: UstrSet,
-    pub(crate) slot_data: bool,
     pub(crate) cache: Option<Cache>,
 }
 
@@ -19,7 +18,6 @@ impl ConnectionOptions {
             password: None,
             item_handling: Default::default(),
             tags: Default::default(),
-            slot_data: true,
             cache: None,
         }
     }
@@ -40,12 +38,6 @@ impl ConnectionOptions {
     /// Sets the tags to send to the server to identify details of this client.
     pub fn tags(mut self, tags: impl IntoIterator<Item: Into<Ustr>>) -> Self {
         self.tags = tags.into_iter().map(|t| t.into()).collect();
-        self
-    }
-
-    /// Don't receive slot data.
-    pub fn no_slot_data(mut self) -> Self {
-        self.slot_data = false;
         self
     }
 

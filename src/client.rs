@@ -30,12 +30,9 @@ const VERSION: NetworkVersion = NetworkVersion {
 ///
 /// The generic type `S` is used to deserialize the slot data in the initial
 /// `Connected` message. By default, it will decode the slot data as a dynamic
-/// JSON blob.
-///
-/// This isn't currently possible to construct directly. Instead, use
-/// [Connection](crate::Connection) which represents any possible state a
-/// connection can inhabit.
-pub struct Client<S: DeserializeOwned = serde_json::Value> {
+/// JSON blob. If `S = ()`, this will not request slot data from the server at
+/// all.
+pub struct Client<S: DeserializeOwned + 'static = serde_json::Value> {
     socket: Socket<S>,
 
     // == Session information
@@ -79,7 +76,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     get_senders: VecDeque<oneshot::Sender<Result<HashMap<String, serde_json::Value>, Error>>>,
 }
 
-impl<S: DeserializeOwned> Client<S> {
+impl<S: DeserializeOwned + 'static> Client<S> {
     /// Asynchronously initializes a client connection to an Archipelago server.
     ///
     /// If the `url` doesn't have a protocol provided, this tries `wss://`
@@ -166,7 +163,7 @@ impl<S: DeserializeOwned> Client<S> {
             version: version.clone(),
             items_handling: options.item_handling.into(),
             tags: options.tags,
-            slot_data: options.slot_data,
+            slot_data: !try_specialize::static_type_eq::<S, ()>(),
         }))?;
 
         let connected = match socket.recv_async().await? {
@@ -1095,8 +1092,8 @@ impl<S: DeserializeOwned> Client<S> {
 // might not implement it (although being decoded from JSON it probably does).
 // Since we treat slot data as immutable anyway, we can guarantee that nothing
 // will change and so it's safe to declare the entire Client as Unpin.
-impl<S> Unpin for Client<S> where S: DeserializeOwned {}
+impl<S> Unpin for Client<S> where S: DeserializeOwned + 'static {}
 
 // Safety: This isn't automatically Send due to `*const Game`, but that's just a
 // pointer to data the client owns.
-unsafe impl<S> Send for Client<S> where S: DeserializeOwned + Send {}
+unsafe impl<S> Send for Client<S> where S: DeserializeOwned + Send + 'static {}
