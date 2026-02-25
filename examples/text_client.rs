@@ -72,9 +72,8 @@ impl eframe::App for ArchipelagoClient {
                 ap::ConnectionState::Connecting(_) => {
                     ui.heading("Connecting...");
                 }
-                ap::ConnectionState::Connected(client) => {
+                ap::ConnectionState::Connected(_) => {
                     ui.label(RichText::new("Connected").heading().color(Color32::GREEN));
-                    ui.label(format!("Slot data: {:?}", client.slot_data()));
                 }
                 ap::ConnectionState::Disconnected(err) => {
                     ui.label(RichText::new("Disconnected").heading().color(Color32::RED));
