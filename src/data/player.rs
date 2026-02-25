@@ -97,7 +97,7 @@ impl Player {
         self.game
     }
 
-    /// The memmbers of this player, if it's a group.
+    /// The members of this player, if it's a group.
     ///
     /// A player is a group if and only if it has any members.
     pub fn group_members(&self) -> &[Arc<Player>] {
