@@ -2,7 +2,7 @@
 use std::os::unix::io::AsFd;
 #[cfg(windows)]
 use std::os::windows::io::AsSocket;
-use std::{collections::VecDeque, io, net::TcpStream as SyncTcpStream, sync::Arc};
+use std::{collections::VecDeque, io, mem, net::TcpStream as SyncTcpStream, sync::Arc};
 
 use log::*;
 use native_tls::{HandshakeError as TlsHandshakeError, TlsConnector, TlsStream};
@@ -34,7 +34,7 @@ pub(crate) struct Socket<S: DeserializeOwned + 'static> {
 
     /// The buffer of messages that have yet to be returned, in cases where the
     /// server sends multiple messages at a time.
-    messages: VecDeque<ServerMessage<S>>,
+    messages: VecDeque<Result<ServerMessage<S>, Error>>,
 }
 
 impl<S: DeserializeOwned + 'static> Socket<S> {
@@ -165,36 +165,70 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
         }
     }
 
-    /// Returns the next message from this socket, if one is available.
+    /// Returns the list of all messages and errors queued in this socket.
+    /// Returns an empty list if the socket has received no data since the last
+    /// time this was called.
     ///
-    /// Returns an error if this receives an unexpected message type, either at
-    /// the WebSocket or Archipelago levels. Returns `Ok(None)` if there are no
-    /// messages to receive. This automatically handles
+    /// The list will contain any errors encountered while processing the
+    /// incoming data, including errors for unknown messages either at the
+    /// Archipelago or WebSocket levels. There's no guarantee that it will
+    /// contain only one error. This automatically handles
     /// [io::ErrorKind::WouldBlock].
-    pub(crate) fn try_recv(&mut self) -> Result<Option<ServerMessage<S>>, Error> {
-        if let Some(message) = self.messages.pop_front() {
-            return Ok(Some(message));
-        }
+    pub(crate) fn recv_all(
+        &mut self,
+    ) -> impl IntoIterator<Item = Result<ServerMessage<S>, Error>> + use<S> {
+        self.read_inner();
+        mem::take(&mut self.messages)
+    }
 
+    /// Returns the next result from this socket, if one is available. Returns
+    /// `None` if the socket has received no data since the last time this was
+    /// called.
+    ///
+    /// This returns errors interleaved with messages in the order they were
+    /// encountered. It automatically handles [io::ErrorKind::WouldBlock].
+    pub(crate) fn try_recv(&mut self) -> Option<Result<ServerMessage<S>, Error>> {
+        self.read_inner();
+        self.messages.pop_front()
+    }
+
+    /// Like [try_recv], but returns a Future that only resolves once a result
+    /// is available.
+    pub(crate) async fn recv_async(&mut self) -> Result<ServerMessage<S>, Error> {
         loop {
+            match self.try_recv() {
+                Some(result) => return result,
+                None => self.async_stream.readable().await?,
+            }
+        }
+    }
+
+    /// Processes any queued messages in [Self::inner] and adds them to
+    /// [Self::messages].
+    ///
+    /// This can't fail because any errors it encounters will be put in
+    /// [Self::messages] rather than returned directly.
+    fn read_inner(&mut self) {
+        // Always check the socket even if we already have messages in
+        // [Socket::messages] to ensure that we don't starve it and prevent it
+        // from responding to heartbeat pings.
+        while self.inner.can_read() {
             match self.inner.read() {
                 Ok(Message::Text(bytes)) => {
                     debug!("--> {bytes}");
-                    // We can overwrite messages without worrying about losing
-                    // data because we return early above unless it's empty.
-                    self.messages = serde_json::from_str(&bytes).map_err(|error| {
-                        ProtocolError::Deserialize {
+                    match serde_json::from_str::<Vec<ServerMessage<S>>>(&bytes) {
+                        Ok(messages) => self.messages.extend(messages.into_iter().map(Ok)),
+                        Err(err) => self.messages.push_back(Err(ProtocolError::Deserialize {
                             json: bytes.to_string(),
-                            error,
+                            error: err,
                         }
-                    })?;
-                    // Recurse so we gracefully handle the case where messages
-                    // is still empty.
-                    return self.try_recv();
+                        .into())),
+                    }
                 }
 
                 Ok(Message::Binary(bytes)) => {
-                    return Err(ProtocolError::BinaryMessage(bytes.to_vec()).into());
+                    self.messages
+                        .push_back(Err(ProtocolError::BinaryMessage(bytes.to_vec()).into()));
                 }
 
                 // Other message types like pings, frames, and closes are
@@ -202,23 +236,17 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
                 Ok(_) => {}
 
                 Err(tungstenite::Error::Io(err)) if err.kind() == io::ErrorKind::WouldBlock => {
-                    // Make sure we reply to any pings or close messages.
-                    self.inner.flush()?;
-                    return Ok(None);
+                    break;
                 }
 
-                Err(err) => return Err(err.into()),
-            }
-        }
-    }
-
-    /// Like [try_recv], but returns a Future that only resolves once a message
-    /// is available.
-    pub(crate) async fn recv_async(&mut self) -> Result<ServerMessage<S>, Error> {
-        loop {
-            match self.try_recv()? {
-                Some(message) => return Ok(message),
-                None => self.async_stream.readable().await?,
+                Err(err) => {
+                    let err = Error::from(err);
+                    let fatal = err.is_fatal();
+                    self.messages.push_back(Err(err));
+                    if fatal {
+                        break;
+                    }
+                }
             }
         }
     }

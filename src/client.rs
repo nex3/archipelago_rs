@@ -90,12 +90,12 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     ) -> Result<Client<S>, Error> {
         let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
         {
-            Socket::<S>::connect(url).await?
+            Socket::connect(url).await?
         } else {
-            match Socket::<S>::connect(format!("wss://{}", url)).await {
+            match Socket::connect(format!("wss://{}", url)).await {
                 Ok(socket) => socket,
                 Err(Error::WebSocket(err)) => {
-                    match Socket::<S>::connect(format!("wss://{}", url)).await {
+                    match Socket::connect(format!("wss://{}", url)).await {
                         Ok(socket) => socket,
                         Err(_) => return Err(err.into()),
                     }
@@ -809,188 +809,187 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     /// it's not dropped. You can detect which errors are fatal using
     /// [Error.is_fatal].
     pub fn update(&mut self) -> Vec<Event> {
-        let mut events = Vec::<Event>::new();
-        loop {
-            match self.socket.try_recv() {
-                Ok(Some(ServerMessage::RawPrint(print))) => match Print::hydrate(print, self) {
-                    Ok(print) => events.push(Event::Print(print)),
-                    Err(err) => events.push(Event::Error(err)),
-                },
+        self.socket
+            .recv_all()
+            .into_iter()
+            .filter_map(|message| match message {
+                Ok(message) => self.handle_message(message),
+                Err(err) => Some(Event::Error(err)),
+            })
+            .collect()
+    }
 
-                Ok(Some(ServerMessage::PlainPrint(PlainPrint { text }))) => {
-                    events.push(Event::Print(Print::message(text)))
+    /// Handles a single message, converting it into an event for the user if
+    /// necessary.
+    fn handle_message(&mut self, message: ServerMessage<S>) -> Option<Event> {
+        match message {
+            ServerMessage::RawPrint(print) => Some(match Print::hydrate(print, self) {
+                Ok(print) => Event::Print(print),
+                Err(err) => Event::Error(err),
+            }),
+
+            ServerMessage::PlainPrint(PlainPrint { text }) => {
+                Some(Event::Print(Print::message(text)))
+            }
+
+            ServerMessage::RoomUpdate(update) => {
+                Some(self.update_room(update).unwrap_or_else(Event::Error))
+            }
+
+            ServerMessage::ReceivedItems(ReceivedItems { index, items }) => {
+                if index == 0 {
+                    self.received_items.clear();
+                } else if index > self.received_items.len() {
+                    // If the index of the item we just received doesn't
+                    // match our expectation, follow the client
+                    // guidelines and send a sync message requesting
+                    // that the server send us all items over again.
+                    return self.sync().err().map(Event::Error);
                 }
 
-                Ok(Some(ServerMessage::RoomUpdate(update))) => match self.update_room(update) {
-                    Ok(event) => events.push(event),
-                    Err(err) => events.push(Event::Error(err)),
-                },
-
-                Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
-                    if index == 0 {
-                        self.received_items.clear();
-                    } else if index > self.received_items.len() {
-                        // If the index of the item we just received doesn't
-                        // match our expectation, follow the client guidelines
-                        // and send a sync message requesting that the server
-                        // send us all items over again.
-                        if let Err(err) = self.sync() {
-                            events.push(Event::Error(err));
-                        }
-                        continue;
-                    }
-
-                    let receiver = &self.players[&self.player_key];
-                    let receiver_game = self.this_game();
-                    let items_or_err = items
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, network)| {
-                            let sender = self.teammate_arc(network.player)?;
-                            let sender_game = self.game_or_err(sender.game())?;
-                            let item = LocatedItem::hydrate_with_games(
-                                network,
-                                sender,
-                                receiver.clone(),
-                                sender_game,
-                                receiver_game,
-                            )?;
-                            Ok(ReceivedItem::new(item, index + i))
-                        })
-                        .collect::<Result<Vec<ReceivedItem>, Error>>();
-                    events.push(match items_or_err {
-                        Ok(items) => {
-                            self.received_items.extend(items);
-                            Event::ReceivedItems(index)
-                        }
-                        Err(err) => Event::Error(err),
+                let receiver = &self.players[&self.player_key];
+                let receiver_game = self.this_game();
+                let items_or_err = items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, network)| {
+                        let sender = self.teammate_arc(network.player)?;
+                        let sender_game = self.game_or_err(sender.game())?;
+                        let item = LocatedItem::hydrate_with_games(
+                            network,
+                            sender,
+                            receiver.clone(),
+                            sender_game,
+                            receiver_game,
+                        )?;
+                        Ok(ReceivedItem::new(item, index + i))
                     })
-                }
+                    .collect::<Result<Vec<ReceivedItem>, Error>>();
 
-                Ok(Some(ServerMessage::LocationInfo(LocationInfo { locations }))) => {
-                    let sender = &self.players[&self.player_key];
-                    let sender_game = self.this_game();
-
-                    let locations_or_err = locations
-                        .into_iter()
-                        .map(|network| {
-                            let receiver = self.teammate_arc(network.player)?;
-                            let receiver_game = self.game_or_err(receiver.game())?;
-                            LocatedItem::hydrate_with_games(
-                                network,
-                                sender.clone(),
-                                receiver,
-                                sender_game,
-                                receiver_game,
-                            )
-                        })
-                        .collect::<Result<Vec<LocatedItem>, Error>>();
-                    if let Some(sender) = self.location_scout_senders.pop_front() {
-                        mem::drop(sender.send(locations_or_err));
-                    } else {
-                        events.push(Event::Error(
-                            ProtocolError::ResponseWithoutRequest("LocationInfo").into(),
-                        ));
+                Some(match items_or_err {
+                    Ok(items) => {
+                        self.received_items.extend(items);
+                        Event::ReceivedItems(index)
                     }
+                    Err(err) => Event::Error(err),
+                })
+            }
+
+            ServerMessage::LocationInfo(LocationInfo { locations }) => {
+                let sender = &self.players[&self.player_key];
+                let sender_game = self.this_game();
+
+                let locations_or_err = locations
+                    .into_iter()
+                    .map(|network| {
+                        let receiver = self.teammate_arc(network.player)?;
+                        let receiver_game = self.game_or_err(receiver.game())?;
+                        LocatedItem::hydrate_with_games(
+                            network,
+                            sender.clone(),
+                            receiver,
+                            sender_game,
+                            receiver_game,
+                        )
+                    })
+                    .collect::<Result<Vec<LocatedItem>, Error>>();
+                if let Some(sender) = self.location_scout_senders.pop_front() {
+                    mem::drop(sender.send(locations_or_err));
+                    None
+                } else {
+                    Some(Event::Error(
+                        ProtocolError::ResponseWithoutRequest("LocationInfo").into(),
+                    ))
                 }
+            }
 
-                Ok(Some(ServerMessage::Bounced(Bounced {
-                    games,
-                    slots,
-                    tags,
-                    data: BounceData::Generic(data),
-                }))) => events.push(Event::Bounce {
-                    games,
-                    slots,
-                    tags,
-                    data,
-                }),
+            ServerMessage::Bounced(Bounced {
+                games,
+                slots,
+                tags,
+                data: BounceData::Generic(data),
+            }) => Some(Event::Bounce {
+                games,
+                slots,
+                tags,
+                data,
+            }),
 
-                Ok(Some(ServerMessage::Bounced(Bounced {
-                    games,
-                    slots,
-                    tags,
-                    data: BounceData::DeathLink(data),
-                }))) => events.push(Event::DeathLink {
-                    games,
-                    slots,
-                    tags: tags.unwrap(),
-                    // We assume other clients try to normalize the time to be
-                    // the time on the server when the death occurred, so add
-                    // the server delay to translate that back into the time on
-                    // the client.
-                    time: data.time + self.server_skew,
-                    cause: data.cause,
-                    source: data.source,
-                }),
+            ServerMessage::Bounced(Bounced {
+                games,
+                slots,
+                tags,
+                data: BounceData::DeathLink(data),
+            }) => Some(Event::DeathLink {
+                games,
+                slots,
+                tags: tags.unwrap(),
+                // We assume other clients try to normalize the time to
+                // be the time on the server when the death occurred, so
+                // add the server delay to translate that back into the
+                // time on the client.
+                time: data.time + self.server_skew,
+                cause: data.cause,
+                source: data.source,
+            }),
 
-                Ok(Some(ServerMessage::InvalidPacket(InvalidPacket { text }))) => {
-                    events.push(Event::Error(Error::InvalidPacket(text)))
+            ServerMessage::InvalidPacket(InvalidPacket { text }) => {
+                Some(Event::Error(Error::InvalidPacket(text)))
+            }
+
+            ServerMessage::Retrieved(Retrieved { keys }) => {
+                if let Some(sender) = self.get_senders.pop_front() {
+                    mem::drop(sender.send(Ok(keys)));
+                    None
+                } else {
+                    Some(Event::Error(
+                        ProtocolError::ResponseWithoutRequest("Retrieved").into(),
+                    ))
                 }
+            }
 
-                Ok(Some(ServerMessage::Retrieved(Retrieved { keys }))) => {
-                    if let Some(sender) = self.get_senders.pop_front() {
-                        mem::drop(sender.send(Ok(keys)));
-                    } else {
-                        events.push(Event::Error(
-                            ProtocolError::ResponseWithoutRequest("Retrieved").into(),
-                        ));
-                    }
-                }
+            ServerMessage::SetReply(SetReply {
+                key,
+                value,
+                original_value,
+                slot: None,
+            }) => Some(Event::KeyChanged {
+                key,
+                old_value: original_value,
+                new_value: value,
+                player: None,
+            }),
 
-                Ok(Some(ServerMessage::SetReply(SetReply {
-                    key,
-                    value,
-                    original_value,
-                    slot: None,
-                }))) => events.push(Event::KeyChanged {
+            ServerMessage::SetReply(SetReply {
+                key,
+                value,
+                original_value,
+                slot: Some(slot),
+            }) => Some(match self.teammate_arc(slot) {
+                Ok(player) => Event::KeyChanged {
                     key,
                     old_value: original_value,
                     new_value: value,
-                    player: None,
-                }),
+                    player: Some(player),
+                },
+                Err(err) => Event::Error(err),
+            }),
 
-                Ok(Some(ServerMessage::SetReply(SetReply {
-                    key,
-                    value,
-                    original_value,
-                    slot: Some(slot),
-                }))) => events.push(match self.teammate_arc(slot) {
-                    Ok(player) => Event::KeyChanged {
-                        key,
-                        old_value: original_value,
-                        new_value: value,
-                        player: Some(player),
-                    },
-                    Err(err) => Event::Error(err),
-                }),
+            ServerMessage::RoomInfo(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("RoomInfo").into(),
+            )),
 
-                Ok(Some(ServerMessage::RoomInfo(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("RoomInfo").into(),
-                )),
+            ServerMessage::ConnectionRefused(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("ConnectionRefused").into(),
+            )),
 
-                Ok(Some(ServerMessage::ConnectionRefused(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("ConnectionRefused").into(),
-                )),
+            ServerMessage::Connected(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("Connected").into(),
+            )),
 
-                Ok(Some(ServerMessage::Connected(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("Connected").into(),
-                )),
-
-                Ok(Some(ServerMessage::DataPackage(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("DataPackage").into(),
-                )),
-
-                Ok(None) => return events,
-
-                Err(err) => {
-                    let fatal = err.is_fatal();
-                    events.push(Event::Error(err));
-                    if fatal {
-                        return events;
-                    }
-                }
-            }
+            ServerMessage::DataPackage(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("DataPackage").into(),
+            )),
         }
     }
 
