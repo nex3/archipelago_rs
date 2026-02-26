@@ -104,6 +104,46 @@ impl<S: DeserializeOwned + Send + 'static> Connection<S> {
         }
     }
 
+    /// Updates this connection in-place to its next available state.
+    ///
+    /// This call never blocks, and is expected to be called repeatedly in order
+    /// to check for new messages from the underlying connection to Archipelago.
+    /// Typically a caller that's integrated Archipelago into a game loop will
+    /// call this repeatedly each frame, or call [Self::update] once.
+    ///
+    /// This returns any events that were received from the server since the
+    /// last time this was called. If the connection encounters a fatal error,
+    /// [Event::Error] will be [Error::Elsewhere] and the actual error will be
+    /// available from [state](Self::state) or [into_err](Self::into_err).
+    ///
+    /// Most errors are fatal, but some (specifically [Error::ProtocolError]s)
+    /// are recoverable. If the connection encounters a recoverable error, it
+    /// will remain in [ConnectionState::Connected] and continue emitting events
+    /// afterwards.
+    pub fn try_next_event(&mut self) -> Option<Event> {
+        match self.state {
+            ConnectionState::Connecting(Connecting(ref mut future)) => match try_future(future) {
+                Some(Ok(client)) => {
+                    self.state = ConnectionState::Connected(client);
+                    Some(Event::Connected)
+                }
+                Some(Err(err)) => {
+                    self.state = ConnectionState::Disconnected(err);
+                    Some(Event::Error(Error::Elsewhere))
+                }
+                None => None,
+            },
+            ConnectionState::Connected(ref mut client) => match client.try_next_event() {
+                Some(Event::Error(error)) if error.is_fatal() => {
+                    self.state = ConnectionState::Disconnected(error);
+                    Some(Event::Error(Error::Elsewhere))
+                }
+                option => option,
+            },
+            ConnectionState::Disconnected(_) => None,
+        }
+    }
+
     /// The current state of the connection.
     pub fn state(&self) -> &ConnectionState<S> {
         &self.state

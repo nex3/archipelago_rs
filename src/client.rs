@@ -819,6 +819,27 @@ impl<S: DeserializeOwned + 'static> Client<S> {
             .collect()
     }
 
+    /// Returns a single pending [Event] from the Archipelago server and updates
+    /// the rest of the client's state to accommodate new information.
+    ///
+    /// This call never blocks, and is expected to be called repeatedly in order
+    /// to check for new messages from the underlying connection to Archipelago.
+    /// Typically a caller that's integrated Archipelago into a game loop will
+    /// call this repeatedly each frame, or call [Self::update] once.
+    ///
+    /// Most errors are fatal, and if emitted mean that the client will not emit
+    /// any more events and should be discarded and reconnected. Some
+    /// (specifically [Error::ProtocolError]s) are recoverable, though, and the
+    /// client will continue to emit additional events after they're emitted if
+    /// it's not dropped. You can detect which errors are fatal using
+    /// [Error.is_fatal].
+    pub fn try_next_event(&mut self) -> Option<Event> {
+        self.socket.try_recv().and_then(|message| match message {
+            Ok(message) => self.handle_message(message),
+            Err(err) => Some(Event::Error(err)),
+        })
+    }
+
     /// Handles a single message, converting it into an event for the user if
     /// necessary.
     fn handle_message(&mut self, message: ServerMessage<S>) -> Option<Event> {
