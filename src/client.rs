@@ -4,7 +4,7 @@ use std::{mem, ptr, sync::Arc, time::SystemTime};
 use ustr::{Ustr, UstrMap, UstrSet};
 
 use crate::{
-    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, Group, ItemHandling, Iter,
+    ArgumentError, AsLocationId, ConnectionOptions, Error, Event, Game, ItemHandling, Iter,
     LocatedItem, Location, Player, Print, ProtocolError, ReceivedItem, SignedDuration, Socket,
     UnsizedIter, UpdatedField, Version, protocol::*,
 };
@@ -30,12 +30,9 @@ const VERSION: NetworkVersion = NetworkVersion {
 ///
 /// The generic type `S` is used to deserialize the slot data in the initial
 /// `Connected` message. By default, it will decode the slot data as a dynamic
-/// JSON blob.
-///
-/// This isn't currently possible to construct directly. Instead, use
-/// [Connection](crate::Connection) which represents any possible state a
-/// connection can inhabit.
-pub struct Client<S: DeserializeOwned = serde_json::Value> {
+/// JSON blob. If `S = ()`, this will not request slot data from the server at
+/// all.
+pub struct Client<S: DeserializeOwned + 'static = serde_json::Value> {
     socket: Socket<S>,
 
     // == Session information
@@ -51,7 +48,6 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     seed_name: String,
     games: UstrMap<Game>,
     slot_data: S,
-    groups: Vec<NetworkSlot>,
 
     /// The difference between the server's notion of the current time and ours.
     /// We use this to normalize timestamps, under the assumption that they
@@ -63,9 +59,6 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
 
     /// The key for the current player in [players].
     player_key: (u32, u32),
-
-    /// The number of teams in this multiworld.
-    teams: u32,
 
     /// A map from location IDs for this game to booleans indicating whether or
     /// not they've been checked.
@@ -83,7 +76,7 @@ pub struct Client<S: DeserializeOwned = serde_json::Value> {
     get_senders: VecDeque<oneshot::Sender<Result<HashMap<String, serde_json::Value>, Error>>>,
 }
 
-impl<S: DeserializeOwned> Client<S> {
+impl<S: DeserializeOwned + 'static> Client<S> {
     /// Asynchronously initializes a client connection to an Archipelago server.
     ///
     /// If the `url` doesn't have a protocol provided, this tries `wss://`
@@ -97,12 +90,12 @@ impl<S: DeserializeOwned> Client<S> {
     ) -> Result<Client<S>, Error> {
         let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
         {
-            Socket::<S>::connect(url).await?
+            Socket::connect(url).await?
         } else {
-            match Socket::<S>::connect(format!("wss://{}", url)).await {
+            match Socket::connect(format!("wss://{}", url)).await {
                 Ok(socket) => socket,
                 Err(Error::WebSocket(err)) => {
-                    match Socket::<S>::connect(format!("wss://{}", url)).await {
+                    match Socket::connect(format!("wss://{}", url)).await {
                         Ok(socket) => socket,
                         Err(_) => return Err(err.into()),
                     }
@@ -170,7 +163,7 @@ impl<S: DeserializeOwned> Client<S> {
             version: version.clone(),
             items_handling: options.item_handling.into(),
             tags: options.tags,
-            slot_data: options.slot_data,
+            slot_data: !try_specialize::static_type_eq::<S, ()>(),
         }))?;
 
         let connected = match socket.recv_async().await? {
@@ -200,7 +193,7 @@ impl<S: DeserializeOwned> Client<S> {
         game: Ustr,
         room_info: RoomInfo,
         data_package: DataPackageObject,
-        mut connected: Connected<S>,
+        connected: Connected<S>,
     ) -> Result<Self, Error> {
         let server_skew = SignedDuration::difference(SystemTime::now(), room_info.time);
         let total_locations = connected.checked_locations.len() + connected.missing_locations.len();
@@ -213,33 +206,18 @@ impl<S: DeserializeOwned> Client<S> {
             .ok_or(ProtocolError::EmptyPlayers)?
             + 1;
 
-        let groups = connected
-            .slot_info
-            .extract_if(|_, slot| slot.r#type == SlotType::Group)
-            .map(|(_, slot)| slot)
-            .collect::<Vec<_>>();
-        for group in &groups {
-            for member in &group.group_members {
-                if !connected.slot_info.contains_key(member) {
-                    return Err(ProtocolError::MissingSlotInfo(*member).into());
-                }
-            }
+        let mut players = HashMap::<(u32, u32), Arc<Player>>::new();
+        for player in connected.players {
+            let slot_info = connected
+                .slot_info
+                .get(&player.slot)
+                .ok_or(ProtocolError::MissingSlotInfo(player.slot))?;
+            // Groups always come after players in the slot list and can't
+            // contain other groups, so only considering the players we've
+            // already hydrated should be safe.
+            let player = Player::hydrate(player, slot_info, &players)?;
+            players.insert((player.team(), player.slot()), player.into());
         }
-
-        let mut players = connected
-            .players
-            .into_iter()
-            .map(|p| {
-                let game = connected
-                    .slot_info
-                    .get(&p.slot)
-                    .or_else(|| groups.iter().find(|s| s.group_members.contains(&p.slot)))
-                    .ok_or(ProtocolError::MissingSlotInfo(p.slot))?
-                    .game;
-                let player = Player::hydrate(p, game);
-                Ok(((player.team(), player.slot()), player.into()))
-            })
-            .collect::<Result<HashMap<(u32, u32), Arc<Player>>, Error>>()?;
         for team in 0..teams {
             players.insert((team, 0), Player::archipelago(team).into());
         }
@@ -294,11 +272,9 @@ impl<S: DeserializeOwned> Client<S> {
             seed_name: room_info.seed_name,
             games,
             slot_data: connected.slot_data,
-            groups,
             server_skew,
             players,
             player_key,
-            teams,
             local_locations_checked,
             received_items: Default::default(),
             location_scout_senders: Default::default(),
@@ -472,27 +448,6 @@ impl<S: DeserializeOwned> Client<S> {
     /// if this player doesn't exist.
     pub fn assert_teammate(&self, slot: u32) -> &Player {
         self.assert_player(self.player_key.0, slot)
-    }
-
-    /// The groups on the given `team`, if such a team exists.
-    pub fn groups(&self, team: u32) -> Option<impl Iter<Group>> {
-        if team >= self.teams {
-            None
-        } else {
-            Some(
-                self.groups
-                    .iter()
-                    .map(move |g| Group::hydrate(g, team, self)),
-            )
-        }
-    }
-
-    /// The groups on the current player's.
-    pub fn teammate_groups(&self) -> impl Iter<Group> {
-        let team = self.player_key.0;
-        self.groups
-            .iter()
-            .map(move |g| Group::hydrate(g, team, self))
     }
 
     /// Returns whether the local location with the given ID has been checked
@@ -854,188 +809,187 @@ impl<S: DeserializeOwned> Client<S> {
     /// it's not dropped. You can detect which errors are fatal using
     /// [Error.is_fatal].
     pub fn update(&mut self) -> Vec<Event> {
-        let mut events = Vec::<Event>::new();
-        loop {
-            match self.socket.try_recv() {
-                Ok(Some(ServerMessage::RawPrint(print))) => match Print::hydrate(print, self) {
-                    Ok(print) => events.push(Event::Print(print)),
-                    Err(err) => events.push(Event::Error(err)),
-                },
+        self.socket
+            .recv_all()
+            .into_iter()
+            .filter_map(|message| match message {
+                Ok(message) => self.handle_message(message),
+                Err(err) => Some(Event::Error(err)),
+            })
+            .collect()
+    }
 
-                Ok(Some(ServerMessage::PlainPrint(PlainPrint { text }))) => {
-                    events.push(Event::Print(Print::message(text)))
+    /// Handles a single message, converting it into an event for the user if
+    /// necessary.
+    fn handle_message(&mut self, message: ServerMessage<S>) -> Option<Event> {
+        match message {
+            ServerMessage::RawPrint(print) => Some(match Print::hydrate(print, self) {
+                Ok(print) => Event::Print(print),
+                Err(err) => Event::Error(err),
+            }),
+
+            ServerMessage::PlainPrint(PlainPrint { text }) => {
+                Some(Event::Print(Print::message(text)))
+            }
+
+            ServerMessage::RoomUpdate(update) => {
+                Some(self.update_room(update).unwrap_or_else(Event::Error))
+            }
+
+            ServerMessage::ReceivedItems(ReceivedItems { index, items }) => {
+                if index == 0 {
+                    self.received_items.clear();
+                } else if index > self.received_items.len() {
+                    // If the index of the item we just received doesn't
+                    // match our expectation, follow the client
+                    // guidelines and send a sync message requesting
+                    // that the server send us all items over again.
+                    return self.sync().err().map(Event::Error);
                 }
 
-                Ok(Some(ServerMessage::RoomUpdate(update))) => match self.update_room(update) {
-                    Ok(event) => events.push(event),
-                    Err(err) => events.push(Event::Error(err)),
-                },
-
-                Ok(Some(ServerMessage::ReceivedItems(ReceivedItems { index, items }))) => {
-                    if index == 0 {
-                        self.received_items.clear();
-                    } else if index > self.received_items.len() {
-                        // If the index of the item we just received doesn't
-                        // match our expectation, follow the client guidelines
-                        // and send a sync message requesting that the server
-                        // send us all items over again.
-                        if let Err(err) = self.sync() {
-                            events.push(Event::Error(err));
-                        }
-                        continue;
-                    }
-
-                    let receiver = &self.players[&self.player_key];
-                    let receiver_game = self.this_game();
-                    let items_or_err = items
-                        .into_iter()
-                        .enumerate()
-                        .map(|(i, network)| {
-                            let sender = self.teammate_arc(network.player)?;
-                            let sender_game = self.game_or_err(sender.game())?;
-                            let item = LocatedItem::hydrate_with_games(
-                                network,
-                                sender,
-                                receiver.clone(),
-                                sender_game,
-                                receiver_game,
-                            )?;
-                            Ok(ReceivedItem::new(item, index + i))
-                        })
-                        .collect::<Result<Vec<ReceivedItem>, Error>>();
-                    events.push(match items_or_err {
-                        Ok(items) => {
-                            self.received_items.extend(items);
-                            Event::ReceivedItems(index)
-                        }
-                        Err(err) => Event::Error(err),
+                let receiver = &self.players[&self.player_key];
+                let receiver_game = self.this_game();
+                let items_or_err = items
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, network)| {
+                        let sender = self.teammate_arc(network.player)?;
+                        let sender_game = self.game_or_err(sender.game())?;
+                        let item = LocatedItem::hydrate_with_games(
+                            network,
+                            sender,
+                            receiver.clone(),
+                            sender_game,
+                            receiver_game,
+                        )?;
+                        Ok(ReceivedItem::new(item, index + i))
                     })
-                }
+                    .collect::<Result<Vec<ReceivedItem>, Error>>();
 
-                Ok(Some(ServerMessage::LocationInfo(LocationInfo { locations }))) => {
-                    let sender = &self.players[&self.player_key];
-                    let sender_game = self.this_game();
-
-                    let locations_or_err = locations
-                        .into_iter()
-                        .map(|network| {
-                            let receiver = self.teammate_arc(network.player)?;
-                            let receiver_game = self.game_or_err(receiver.game())?;
-                            LocatedItem::hydrate_with_games(
-                                network,
-                                sender.clone(),
-                                receiver,
-                                sender_game,
-                                receiver_game,
-                            )
-                        })
-                        .collect::<Result<Vec<LocatedItem>, Error>>();
-                    if let Some(sender) = self.location_scout_senders.pop_front() {
-                        mem::drop(sender.send(locations_or_err));
-                    } else {
-                        events.push(Event::Error(
-                            ProtocolError::ResponseWithoutRequest("LocationInfo").into(),
-                        ));
+                Some(match items_or_err {
+                    Ok(items) => {
+                        self.received_items.extend(items);
+                        Event::ReceivedItems(index)
                     }
+                    Err(err) => Event::Error(err),
+                })
+            }
+
+            ServerMessage::LocationInfo(LocationInfo { locations }) => {
+                let sender = &self.players[&self.player_key];
+                let sender_game = self.this_game();
+
+                let locations_or_err = locations
+                    .into_iter()
+                    .map(|network| {
+                        let receiver = self.teammate_arc(network.player)?;
+                        let receiver_game = self.game_or_err(receiver.game())?;
+                        LocatedItem::hydrate_with_games(
+                            network,
+                            sender.clone(),
+                            receiver,
+                            sender_game,
+                            receiver_game,
+                        )
+                    })
+                    .collect::<Result<Vec<LocatedItem>, Error>>();
+                if let Some(sender) = self.location_scout_senders.pop_front() {
+                    mem::drop(sender.send(locations_or_err));
+                    None
+                } else {
+                    Some(Event::Error(
+                        ProtocolError::ResponseWithoutRequest("LocationInfo").into(),
+                    ))
                 }
+            }
 
-                Ok(Some(ServerMessage::Bounced(Bounced {
-                    games,
-                    slots,
-                    tags,
-                    data: BounceData::Generic(data),
-                }))) => events.push(Event::Bounce {
-                    games,
-                    slots,
-                    tags,
-                    data,
-                }),
+            ServerMessage::Bounced(Bounced {
+                games,
+                slots,
+                tags,
+                data: BounceData::Generic(data),
+            }) => Some(Event::Bounce {
+                games,
+                slots,
+                tags,
+                data,
+            }),
 
-                Ok(Some(ServerMessage::Bounced(Bounced {
-                    games,
-                    slots,
-                    tags,
-                    data: BounceData::DeathLink(data),
-                }))) => events.push(Event::DeathLink {
-                    games,
-                    slots,
-                    tags: tags.unwrap(),
-                    // We assume other clients try to normalize the time to be
-                    // the time on the server when the death occurred, so add
-                    // the server delay to translate that back into the time on
-                    // the client.
-                    time: data.time + self.server_skew,
-                    cause: data.cause,
-                    source: data.source,
-                }),
+            ServerMessage::Bounced(Bounced {
+                games,
+                slots,
+                tags,
+                data: BounceData::DeathLink(data),
+            }) => Some(Event::DeathLink {
+                games,
+                slots,
+                tags: tags.unwrap(),
+                // We assume other clients try to normalize the time to
+                // be the time on the server when the death occurred, so
+                // add the server delay to translate that back into the
+                // time on the client.
+                time: data.time + self.server_skew,
+                cause: data.cause,
+                source: data.source,
+            }),
 
-                Ok(Some(ServerMessage::InvalidPacket(InvalidPacket { text }))) => {
-                    events.push(Event::Error(Error::InvalidPacket(text)))
+            ServerMessage::InvalidPacket(InvalidPacket { text }) => {
+                Some(Event::Error(Error::InvalidPacket(text)))
+            }
+
+            ServerMessage::Retrieved(Retrieved { keys }) => {
+                if let Some(sender) = self.get_senders.pop_front() {
+                    mem::drop(sender.send(Ok(keys)));
+                    None
+                } else {
+                    Some(Event::Error(
+                        ProtocolError::ResponseWithoutRequest("Retrieved").into(),
+                    ))
                 }
+            }
 
-                Ok(Some(ServerMessage::Retrieved(Retrieved { keys }))) => {
-                    if let Some(sender) = self.get_senders.pop_front() {
-                        mem::drop(sender.send(Ok(keys)));
-                    } else {
-                        events.push(Event::Error(
-                            ProtocolError::ResponseWithoutRequest("Retrieved").into(),
-                        ));
-                    }
-                }
+            ServerMessage::SetReply(SetReply {
+                key,
+                value,
+                original_value,
+                slot: None,
+            }) => Some(Event::KeyChanged {
+                key,
+                old_value: original_value,
+                new_value: value,
+                player: None,
+            }),
 
-                Ok(Some(ServerMessage::SetReply(SetReply {
-                    key,
-                    value,
-                    original_value,
-                    slot: None,
-                }))) => events.push(Event::KeyChanged {
+            ServerMessage::SetReply(SetReply {
+                key,
+                value,
+                original_value,
+                slot: Some(slot),
+            }) => Some(match self.teammate_arc(slot) {
+                Ok(player) => Event::KeyChanged {
                     key,
                     old_value: original_value,
                     new_value: value,
-                    player: None,
-                }),
+                    player: Some(player),
+                },
+                Err(err) => Event::Error(err),
+            }),
 
-                Ok(Some(ServerMessage::SetReply(SetReply {
-                    key,
-                    value,
-                    original_value,
-                    slot: Some(slot),
-                }))) => events.push(match self.teammate_arc(slot) {
-                    Ok(player) => Event::KeyChanged {
-                        key,
-                        old_value: original_value,
-                        new_value: value,
-                        player: Some(player),
-                    },
-                    Err(err) => Event::Error(err),
-                }),
+            ServerMessage::RoomInfo(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("RoomInfo").into(),
+            )),
 
-                Ok(Some(ServerMessage::RoomInfo(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("RoomInfo").into(),
-                )),
+            ServerMessage::ConnectionRefused(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("ConnectionRefused").into(),
+            )),
 
-                Ok(Some(ServerMessage::ConnectionRefused(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("ConnectionRefused").into(),
-                )),
+            ServerMessage::Connected(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("Connected").into(),
+            )),
 
-                Ok(Some(ServerMessage::Connected(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("Connected").into(),
-                )),
-
-                Ok(Some(ServerMessage::DataPackage(_))) => events.push(Event::Error(
-                    ProtocolError::ResponseWithoutRequest("DataPackage").into(),
-                )),
-
-                Ok(None) => return events,
-
-                Err(err) => {
-                    let fatal = err.is_fatal();
-                    events.push(Event::Error(err));
-                    if fatal {
-                        return events;
-                    }
-                }
-            }
+            ServerMessage::DataPackage(_) => Some(Event::Error(
+                ProtocolError::ResponseWithoutRequest("DataPackage").into(),
+            )),
         }
     }
 
@@ -1065,13 +1019,7 @@ impl<S: DeserializeOwned> Client<S> {
                                 team: new.team,
                                 slot: new.slot,
                             })
-                            .map(|old| {
-                                if old.alias() == new.alias {
-                                    None
-                                } else {
-                                    Some(Player::hydrate(new, old.game()))
-                                }
-                            })
+                            .map(|old| old.with_alias(new.alias))
                             .transpose()
                     })
                     .collect::<Result<Vec<_>, ProtocolError>>()
@@ -1143,8 +1091,8 @@ impl<S: DeserializeOwned> Client<S> {
 // might not implement it (although being decoded from JSON it probably does).
 // Since we treat slot data as immutable anyway, we can guarantee that nothing
 // will change and so it's safe to declare the entire Client as Unpin.
-impl<S> Unpin for Client<S> where S: DeserializeOwned {}
+impl<S> Unpin for Client<S> where S: DeserializeOwned + 'static {}
 
 // Safety: This isn't automatically Send due to `*const Game`, but that's just a
 // pointer to data the client owns.
-unsafe impl<S> Send for Client<S> where S: DeserializeOwned + Send {}
+unsafe impl<S> Send for Client<S> where S: DeserializeOwned + Send + 'static {}

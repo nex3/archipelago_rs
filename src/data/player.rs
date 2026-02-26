@@ -1,10 +1,10 @@
 use std::cmp::{Eq, PartialEq};
-use std::fmt;
 use std::hash::{Hash, Hasher};
+use std::{collections::HashMap, fmt, sync::Arc};
 
 use ustr::Ustr;
 
-use crate::{ARCHIPELAGO_NAME, protocol::NetworkPlayer};
+use crate::{ARCHIPELAGO_NAME, Error, ProtocolError, protocol::*};
 
 /// A single player (that is, slot) in the multiworld.
 #[derive(Debug, Clone)]
@@ -14,18 +14,35 @@ pub struct Player {
     alias: String,
     name: Ustr,
     game: Ustr,
+    group_members: Vec<Arc<Player>>,
 }
 
 impl Player {
     /// Converts the raw network-level player struct into a [Player].
-    pub(crate) fn hydrate(network: NetworkPlayer, game: Ustr) -> Self {
-        Player {
-            team: network.team,
+    pub(crate) fn hydrate(
+        network: NetworkPlayer,
+        slot_info: &NetworkSlot,
+        players: &HashMap<(u32, u32), Arc<Player>>,
+    ) -> Result<Self, Error> {
+        let team = network.team;
+        Ok(Player {
+            team,
             slot: network.slot,
             alias: network.alias,
             name: network.name,
-            game,
-        }
+            game: slot_info.game,
+            group_members: slot_info
+                .group_members
+                .iter()
+                .copied()
+                .map(|slot| {
+                    players
+                        .get(&(team, slot))
+                        .cloned()
+                        .ok_or(ProtocolError::MissingPlayer { team, slot })
+                })
+                .collect::<Result<_, _>>()?,
+        })
     }
 
     /// Returns the special reserved player used for Archipelago itself.
@@ -36,6 +53,20 @@ impl Player {
             alias: "Archipelago".into(),
             name: *ARCHIPELAGO_NAME,
             game: *ARCHIPELAGO_NAME,
+            group_members: Default::default(),
+        }
+    }
+
+    /// If [alias] is different than this player's current alias, returns a
+    /// clone of this player with the new alias.
+    pub(crate) fn with_alias(&self, alias: String) -> Option<Self> {
+        if self.alias == alias {
+            None
+        } else {
+            Some(Player {
+                alias,
+                ..self.clone()
+            })
         }
     }
 
@@ -64,6 +95,13 @@ impl Player {
     /// The name of the game this player is playing.
     pub fn game(&self) -> Ustr {
         self.game
+    }
+
+    /// The members of this player, if it's a group.
+    ///
+    /// A player is a group if and only if it has any members.
+    pub fn group_members(&self) -> &[Arc<Player>] {
+        &self.group_members
     }
 }
 

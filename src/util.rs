@@ -6,6 +6,14 @@ mod signed_duration;
 
 pub(crate) use signed_duration::*;
 
+/// Options to use when sanitizing file names.
+const SANITIZE_FILE_NAME_OPTIONS: sanitise_file_name::Options<Option<char>> =
+    sanitise_file_name::Options {
+        normalise_whitespace: false,
+        replace_with: None,
+        ..sanitise_file_name::Options::DEFAULT
+    };
+
 /// The trait of iterators returned by this package that don't have a size known
 /// ahead of time. This allows us to keep iterator implementations opaque while
 /// still guaranteeing that they implement various useful traits.
@@ -48,4 +56,9 @@ pub(crate) async fn write_file_atomic(
     fs::rename(tmp_path, path).await?;
 
     Ok(())
+}
+
+/// Returns a version of `name` that's safe to use as a pathname.
+pub(crate) fn sanitize_file_name(name: impl AsRef<str>) -> String {
+    sanitise_file_name::sanitise_with_options(name.as_ref(), &SANITIZE_FILE_NAME_OPTIONS)
 }

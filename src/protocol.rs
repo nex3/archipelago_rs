@@ -1,8 +1,7 @@
-use std::collections::HashMap;
-use std::{fmt::Display, time::SystemTime};
+use std::{collections::HashMap, fmt::Display, mem, time::SystemTime};
 
 use bitflags::bitflags;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::DeserializeOwned};
 use serde_json::Value;
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use serde_with::{DisplayFromStr, TimestampSeconds, serde_as};
@@ -36,9 +35,10 @@ pub(crate) enum ClientMessage {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "cmd")]
-pub(crate) enum ServerMessage<S> {
+pub(crate) enum ServerMessage<S: DeserializeOwned + 'static> {
     RoomInfo(RoomInfo),
     ConnectionRefused(ConnectionRefused),
+    #[serde(deserialize_with = "deserialize_connected_with_optional_slot_data")]
     Connected(Connected<S>),
     ReceivedItems(ReceivedItems),
     LocationInfo(LocationInfo),
@@ -54,7 +54,7 @@ pub(crate) enum ServerMessage<S> {
     SetReply(SetReply),
 }
 
-impl<S> ServerMessage<S> {
+impl<S: DeserializeOwned + 'static> ServerMessage<S> {
     /// Returns the name of this message's type.
     pub(crate) fn type_name(&self) -> &'static str {
         use ServerMessage::*;
@@ -450,6 +450,38 @@ pub(crate) struct Connected<S> {
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     pub(crate) slot_info: HashMap<u32, NetworkSlot>,
     pub(crate) hint_points: u64,
+}
+
+/// Deserializes a value of `Connected<S>`, except that if `S` is
+/// [json_serde::Value], this will allow `slot_data` to be omitted entirely.
+fn deserialize_connected_with_optional_slot_data<'de, S, D>(
+    deserializer: D,
+) -> Result<Connected<S>, D::Error>
+where
+    S: DeserializeOwned + 'static,
+    D: Deserializer<'de>,
+{
+    Ok(if try_specialize::static_type_eq::<S, ()>() {
+        let inner = Connected::<Option<()>>::deserialize(deserializer)?;
+        let connected = Connected {
+            team: inner.team,
+            slot: inner.slot,
+            players: inner.players,
+            missing_locations: inner.missing_locations,
+            checked_locations: inner.checked_locations,
+            slot_data: (),
+            slot_info: inner.slot_info,
+            hint_points: inner.hint_points,
+        };
+
+        // Safety: We've verified that S is Value above.
+        let typed_connected =
+            unsafe { mem::transmute_copy::<Connected<()>, Connected<S>>(&connected) };
+        mem::forget(connected);
+        typed_connected
+    } else {
+        Connected::<S>::deserialize(deserializer)?
+    })
 }
 
 #[derive(Debug, Clone, Deserialize)]

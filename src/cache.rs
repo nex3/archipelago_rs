@@ -69,7 +69,9 @@ impl Cache {
             UstrMap::with_capacity_and_hasher(checksums.len(), Default::default());
         let dir = self.data_package_path();
         for (game, checksum) in checksums {
-            let path = dir.join(game).join(format!("{checksum}.json"));
+            let path = dir
+                .join(util::sanitize_file_name(game))
+                .join(util::sanitize_file_name(format!("{checksum}.json")));
 
             let file = match fs::read_to_string(&path).await {
                 Ok(f) => f,
@@ -102,7 +104,7 @@ impl Cache {
     pub(crate) async fn store_data_packages(&self, data_packages: &UstrMap<GameData>) {
         let dir = self.data_package_path();
         for (game, data) in data_packages {
-            let game_dir = dir.join(game);
+            let game_dir = dir.join(util::sanitize_file_name(game));
 
             if let Err(err) = fs::create_dir_all(&game_dir).await {
                 log::error!("Failed to create cache directory {game_dir:?}: {err}");
@@ -119,7 +121,7 @@ impl Cache {
                 }
             };
 
-            let path = game_dir.join(format!("{}.json", data.checksum));
+            let path = game_dir.join(util::sanitize_file_name(format!("{}.json", data.checksum)));
             if let Err(err) = util::write_file_atomic(&path, serialized).await {
                 log::error!("Failed to write cached data package to {path:?}: {err}");
             }
