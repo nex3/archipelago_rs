@@ -22,5 +22,8 @@ jobs:
     - run: cargo clippy -- -D warnings
     - run: cargo fmt -- --check
     - run: cargo build
+    - run: cargo build --no-default-features
+    - run: cargo build --no-default-features --features rustls
+    - run: cargo build --no-default-features --features native-tls
     - run: cargo build --example text_client
     - run: cargo doc --no-deps

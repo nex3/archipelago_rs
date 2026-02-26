@@ -1,3 +1,6 @@
+#[cfg(feature = "rustls")]
+use std::sync::Arc;
+
 use ustr::{Ustr, UstrSet};
 
 use crate::{Cache, protocol::ItemsHandlingFlags};
@@ -9,6 +12,8 @@ pub struct ConnectionOptions {
     pub(crate) item_handling: ItemHandling,
     pub(crate) tags: UstrSet,
     pub(crate) cache: Option<Cache>,
+    #[cfg(feature = "rustls")]
+    pub(crate) rustls_config: Option<Arc<rustls::ClientConfig>>,
 }
 
 impl ConnectionOptions {
@@ -19,6 +24,8 @@ impl ConnectionOptions {
             item_handling: Default::default(),
             tags: Default::default(),
             cache: None,
+            #[cfg(feature = "rustls")]
+            rustls_config: None,
         }
     }
 
@@ -46,6 +53,18 @@ impl ConnectionOptions {
     /// By default, this will write to Archipelago's shared cache directory.
     pub fn cache(mut self, cache: Cache) -> Self {
         self.cache = Some(cache);
+        self
+    }
+
+    /// Configuration for the Rustls connection. The default matches the rustls
+    /// default behavior, except for the following:
+    ///
+    /// * It uses [webpki_roots::TLS_SERVER_ROOTS] as its root certificate store.
+    /// * It uses [rustls::KeyLogFile] as its key logger.
+    /// * It disables client authentication.
+    #[cfg(feature = "rustls")]
+    pub fn rustls_config(mut self, config: impl Into<Arc<rustls::ClientConfig>>) -> Self {
+        self.rustls_config = Some(config.into());
         self
     }
 }

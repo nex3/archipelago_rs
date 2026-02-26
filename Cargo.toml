@@ -12,7 +12,10 @@ categories = ["api-bindings", "game-development"]
 
 [features]
 default = ["rustls", "native-tls"]
-rustls = ["dep:rustls", "dep:webpki-roots", "tungstenite/rustls-tls-native-roots"]
+# We don't enable any particular rustls root-loading feature because we're not
+# using its blocking TLS initialization code anyway. We just need to enable the
+# shared feature to ensure that `MaybeTlsStream::Rustls` is defined.
+rustls = ["dep:rustls", "dep:webpki-roots", "tungstenite/__rustls-tls"]
 native-tls = ["dep:native-tls", "tungstenite/native-tls"]
 
 [dependencies]
