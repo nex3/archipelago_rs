@@ -10,20 +10,30 @@ license = "MIT"
 keywords = ["archipelago", "randomizer"]
 categories = ["api-bindings", "game-development"]
 
+[features]
+default = ["rustls", "native-tls"]
+# We don't enable any particular rustls root-loading feature because we're not
+# using its blocking TLS initialization code anyway. We just need to enable the
+# shared feature to ensure that `MaybeTlsStream::Rustls` is defined.
+rustls = ["dep:rustls", "dep:webpki-roots", "tungstenite/__rustls-tls"]
+native-tls = ["dep:native-tls", "tungstenite/native-tls"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_repr = "0.1"
 thiserror = "2.0.17"
-tungstenite = { version = "0.28", features = ["native-tls"] }
+tungstenite = { version = "0.28", features = [] }
 bitflags = { version = "2.10.0" }
 serde_with = "3.16.1"
 log = "0.4.29"
-native-tls = "0.2.14"
+native-tls = { version = "0.2.14", optional = true }
 smol = "2.0.2"
 ustr = { version = "1.1.0", features = ["serde"] }
 oneshot = "0.1.11"
 rand = "0.9.2"
+rustls = { version = "0.23.36", optional = true }
+webpki-roots = { version = "1.0.6", optional = true }
 sanitise-file-name = "1.0.0"
 try-specialize = "0.1.2"
 
