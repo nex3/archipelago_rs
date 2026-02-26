@@ -1,5 +1,5 @@
-use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
+use std::{fmt, pin::Pin};
 
 use serde::de::DeserializeOwned;
 use smol::future::FutureExt;
@@ -37,19 +37,23 @@ impl<S: DeserializeOwned + Send + 'static> Connection<S> {
     /// followed by `ws://`. If it doesn't have a port, it defaults to the
     /// Archipelago default port 38281.
     ///
+    /// If `game` is `None`, [ConnectionOptions::tags] must contain at least one
+    /// of `HintGame`, `Tracker` or `TextOnly`. In this case, the server won't
+    /// validate that the slot you connect to is playing a particular game.
+    ///
     /// See [ConnectionOptions] for details about optional arguments and their
     /// defaults.
     pub fn new(
         url: impl Into<String>,
-        game: impl Into<Ustr>,
         name: impl Into<Ustr>,
+        game: Option<impl Into<Ustr>>,
         options: ConnectionOptions,
     ) -> Self {
         Connection {
             state: ConnectionState::Connecting(Connecting(Box::pin(Client::connect(
                 url.into(),
-                game.into(),
                 name.into(),
+                game.map(|g| g.into()),
                 options,
             )))),
         }
@@ -205,6 +209,17 @@ impl<S: DeserializeOwned + 'static> Default for ConnectionState<S> {
     /// [Error::ClientDisconnected].
     fn default() -> Self {
         ConnectionState::Disconnected(Error::ClientDisconnected)
+    }
+}
+
+impl<S: DeserializeOwned + 'static> fmt::Debug for ConnectionState<S> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        use ConnectionState::*;
+        match self {
+            Connecting(_) => write!(f, "Connecting"),
+            Connected(_) => write!(f, "Connected"),
+            Disconnected(err) => write!(f, "Disconnected: {}", err),
+        }
     }
 }
 

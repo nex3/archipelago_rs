@@ -1,5 +1,5 @@
 use thiserror::Error as ThisError;
-use ustr::Ustr;
+use ustr::{Ustr, UstrSet};
 
 use crate::LocatedItem;
 
@@ -117,6 +117,23 @@ impl From<String> for ConnectionError {
 /// Errors caused by the user invoking the client incorrectly.
 #[derive(ThisError, Debug)]
 pub enum ArgumentError {
+    /// The game parameter to [Client::connect] or [Connection::new] was `None`
+    /// but [ConnectionOptions::tags] didn't contain a tag that would allow
+    /// this.
+    ///
+    /// [Client::connect]: crate::Client::connect
+    /// [Connection::new]: crate::Connection::new
+    /// [ConnectionOptions::tags]: crate::ConnectionOptions::tags
+    #[error(
+        "game was None but tags {tags:?} didn't contain \"HintGame\", \"Tracker\", or \"TextOnly\""
+    )]
+    MissingGame {
+        /// The tags that were passed to [ConnectionOptions::tags].
+        ///
+        /// [ConnectionOptions::tags]: crate::ConnectionOptions::tags
+        tags: UstrSet,
+    },
+
     /// The given location ID doesn't correspond to a location in the given
     /// game.
     #[error("{game} doesn't have a location with ID {location}")]

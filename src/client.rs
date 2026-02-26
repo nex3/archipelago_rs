@@ -82,12 +82,28 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     /// If the `url` doesn't have a protocol provided, this tries `wss://`
     /// followed by `ws://`. If it doesn't have a port, it defaults to the
     /// Archipelago default port 38281.
+    ///
+    /// If `game` is `None`, [ConnectionOptions::tags] must contain at least one
+    /// of `HintGame`, `Tracker` or `TextOnly`. In this case, the server won't
+    /// validate that the slot you connect to is playing a particular game.
+    ///
+    /// See [ConnectionOptions] for details about optional arguments and their
+    /// defaults.
     pub async fn connect(
-        url: String,
-        game: Ustr,
-        name: Ustr,
+        url: impl Into<String>,
+        name: impl Into<Ustr>,
+        game: Option<impl Into<Ustr>>,
         options: ConnectionOptions,
     ) -> Result<Client<S>, Error> {
+        if game.is_none()
+            && !options.tags.contains(&"HintGame".into())
+            && !options.tags.contains(&"Tracker".into())
+            && !options.tags.contains(&"TextOnly".into())
+        {
+            return Err(ArgumentError::MissingGame { tags: options.tags }.into());
+        }
+
+        let url = url.into();
         let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
         {
             Socket::connect(url).await?
@@ -107,13 +123,7 @@ impl<S: DeserializeOwned + 'static> Client<S> {
         log::debug!("Awaiting RoomInfo...");
         let room_info = match socket.recv_async().await? {
             ServerMessage::RoomInfo(room_info) => room_info,
-            message => {
-                return Err(ProtocolError::UnexpectedResponse {
-                    actual: message.type_name(),
-                    expected: "RoomInfo",
-                }
-                .into());
-            }
+            message => return Err(Self::unexpected_response(message, "RoomInfo")),
         };
 
         log::debug!("Loading Cached DataPackages...");
@@ -136,13 +146,7 @@ impl<S: DeserializeOwned + 'static> Client<S> {
             }))?;
             let received_dp = match socket.recv_async().await? {
                 ServerMessage::DataPackage(DataPackage { data }) => data,
-                message => {
-                    return Err(ProtocolError::UnexpectedResponse {
-                        actual: message.type_name(),
-                        expected: "DataPackage",
-                    }
-                    .into());
-                }
+                message => return Err(Self::unexpected_response(message, "DataPackage")),
             };
             log::debug!("Writing new entries to cache...");
             cache.store_data_packages(&received_dp.games).await;
@@ -155,8 +159,8 @@ impl<S: DeserializeOwned + 'static> Client<S> {
         version.class = "Version".into();
         socket.send(ClientMessage::Connect(Connect {
             password: options.password,
-            game,
-            name,
+            game: game.map(|g| g.into()),
+            name: name.into(),
             // Specify something useful here if
             // ArchipelagoMW/Archipelago#998 ever gets sorted out.
             uuid: "".into(),
@@ -173,16 +177,10 @@ impl<S: DeserializeOwned + 'static> Client<S> {
                     errors.into_iter().map(|e| e.into()).collect(),
                 ));
             }
-            message => {
-                return Err(ProtocolError::UnexpectedResponse {
-                    actual: message.type_name(),
-                    expected: "Connected",
-                }
-                .into());
-            }
+            message => return Err(Self::unexpected_response(message, "Connected")),
         };
 
-        let client = Client::new(socket, game, room_info, data_package, connected)?;
+        let client = Client::new(socket, room_info, data_package, connected)?;
         log::info!("Archipelago connection initialized successfully");
         Ok(client)
     }
@@ -190,7 +188,6 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     /// Creates a new client with all available initial information.
     fn new(
         socket: Socket<S>,
-        game: Ustr,
         room_info: RoomInfo,
         data_package: DataPackageObject,
         connected: Connected<S>,
@@ -242,9 +239,13 @@ impl<S: DeserializeOwned + 'static> Client<S> {
                 .or_insert_with(|| Game::no_data_package(game_name));
         }
 
+        let game = connected
+            .slot_info
+            .get(&connected.slot)
+            .ok_or(ProtocolError::MissingSlotInfo(connected.slot))?
+            .game;
         let game = games
-            // Safety: This is only used for the duration of the get.
-            .get(&Ustr::from(&game))
+            .get(&game)
             .ok_or(ProtocolError::MissingGameData(game))?;
         let game_ptr = ptr::from_ref(game);
 
@@ -280,6 +281,19 @@ impl<S: DeserializeOwned + 'static> Client<S> {
             location_scout_senders: Default::default(),
             get_senders: Default::default(),
         })
+    }
+
+    /// Returns an error indicating that [message] is unexpected.
+    fn unexpected_response(message: ServerMessage<S>, expected: &'static str) -> Error {
+        if let ServerMessage::InvalidPacket(invalid) = message {
+            Error::InvalidPacket(invalid.text)
+        } else {
+            ProtocolError::UnexpectedResponse {
+                actual: message.type_name(),
+                expected,
+            }
+            .into()
+        }
     }
 
     // == Session information
