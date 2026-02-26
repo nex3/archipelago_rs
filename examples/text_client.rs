@@ -132,7 +132,6 @@ impl eframe::App for ArchipelagoClient {
 #[derive(Default, Serialize, Deserialize)]
 struct ConnectPopup {
     url: String,
-    game: String,
     slot: String,
 
     #[serde(skip)]
@@ -147,10 +146,6 @@ impl ConnectPopup {
     ) -> ModalResponse<Option<ap::Connection<()>>> {
         Modal::new(Id::new("connect-popup")).show(ctx, |ui| {
             let responses = [
-                ui.horizontal(|ui| {
-                    ui.label("Game");
-                    ui.add(TextEdit::singleline(&mut self.game).hint_text("Dark Souls III"))
-                }),
                 ui.horizontal(|ui| {
                     ui.label("URL");
                     ui.add(TextEdit::singleline(&mut self.url).hint_text("archipelago.gg:12345"))
@@ -167,9 +162,9 @@ impl ConnectPopup {
             {
                 Some(ap::Connection::new(
                     &self.url,
-                    &self.game,
                     &self.slot,
-                    Default::default(),
+                    None::<String>,
+                    ap::ConnectionOptions::new().tags(vec!["TextOnly"]),
                 ))
             } else {
                 None
