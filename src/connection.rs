@@ -20,10 +20,9 @@ pub(crate) use socket::*;
 ///
 /// The generic type `S` is used to deserialize the slot data in the initial
 /// `Connected` message. By default, it will decode the slot data as a
-/// dynamically-typed JSON blob.
+/// dynamically-typed JSON blob. If `S = ()`, this will not request slot data
+/// from the server at all.
 #[derive(Default)]
-// TODO: Use TAITs to avoid boxing the connection future and thus avoid
-// `'static` here.
 pub struct Connection<S: DeserializeOwned + Send + 'static = serde_json::Value> {
     /// The current state of the connection.
     state: ConnectionState<S>,
@@ -211,7 +210,7 @@ impl<S: DeserializeOwned + 'static> Default for ConnectionState<S> {
 
 /// The state of the Archipelago connection during the initial sequence of
 /// protocol handshakes.
-pub struct Connecting<S: DeserializeOwned>(
+pub struct Connecting<S: DeserializeOwned + 'static>(
     Pin<Box<dyn Future<Output = Result<Client<S>, Error>> + Send>>,
 );
 
