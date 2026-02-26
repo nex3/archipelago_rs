@@ -832,7 +832,9 @@ impl<S: DeserializeOwned + 'static> Client<S> {
                 Some(Event::Print(Print::message(text)))
             }
 
-    ServerMessage::RoomUpdate(update) => Some(self.update_room(update).unwrap_or_else(Event::Error)),
+            ServerMessage::RoomUpdate(update) => {
+                Some(self.update_room(update).unwrap_or_else(Event::Error))
+            }
 
             ServerMessage::ReceivedItems(ReceivedItems { index, items }) => {
                 if index == 0 {
