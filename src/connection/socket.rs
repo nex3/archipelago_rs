@@ -177,6 +177,7 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
     pub(crate) fn recv_all(
         &mut self,
     ) -> impl IntoIterator<Item = Result<ServerMessage<S>, Error>> + use<S> {
+        self.read_inner();
         mem::take(&mut self.messages)
     }
 
@@ -208,8 +209,9 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
     /// This can't fail because any errors it encounters will be put in
     /// [Self::messages] rather than returned directly.
     fn read_inner(&mut self) {
-        // messages in [Socket::messages], to ensure that we don't starve the
-        // socket and prevent it from responding to heartbeat pings.
+        // Always check the socket even if we already have messages in
+        // [Socket::messages] to ensure that we don't starve it and prevent it
+        // from responding to heartbeat pings.
         while self.inner.can_read() {
             match self.inner.read() {
                 Ok(Message::Text(bytes)) => {
