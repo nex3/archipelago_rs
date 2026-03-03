@@ -181,7 +181,7 @@ pub(crate) struct NetworkSlot {
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct Connect {
     pub(crate) password: Option<String>,
-    pub(crate) game: Ustr,
+    pub(crate) game: Option<Ustr>,
     pub(crate) name: Ustr,
     pub(crate) uuid: String,
     pub(crate) version: NetworkVersion,
