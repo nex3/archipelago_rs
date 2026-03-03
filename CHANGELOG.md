@@ -24,6 +24,9 @@
 * **Breaking change:** Add a `'static` bound to the `S` type parameter to
   `Client` or `Connection` is `()`.
 
+* Add support for `rustls` in addition to or instead of `native-tls` as the TLS
+  provider. These are now exposed as features. See the README for details.
+
 * Make `Client::connect()` take `Into<..>` parameters rather than specific types
   to match `Connection::new()`.
   
