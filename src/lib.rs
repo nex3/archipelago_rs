@@ -6,6 +6,7 @@ mod data;
 mod error;
 mod event;
 mod protocol;
+pub mod tags;
 mod util;
 
 pub use cache::*;
