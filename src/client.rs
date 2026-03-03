@@ -84,8 +84,13 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     /// Archipelago default port 38281.
     ///
     /// If `game` is `None`, [ConnectionOptions::tags] must contain at least one
-    /// of `HintGame`, `Tracker` or `TextOnly`. In this case, the server won't
-    /// validate that the slot you connect to is playing a particular game.
+    /// of [tags::HINT_GAME], [tags::TRACKER] or [tags::TEXT_ONLY]. In this
+    /// case, the server won't validate that the slot you connect to is playing
+    /// a particular game.
+    ///
+    /// [tags::HINT_GAME]: crate::tags::HINT_GAME
+    /// [tags::TRACKER]: crate::tags::TRACKER
+    /// [tags::TEXT_ONLY]: crate::tags::TEXT_ONLY
     ///
     /// See [ConnectionOptions] for details about optional arguments and their
     /// defaults.

@@ -36,6 +36,8 @@ impl ConnectionOptions {
     }
 
     /// Sets the tags to send to the server to identify details of this client.
+    ///
+    /// Various common tags are provided as constants in [crate::tags].
     pub fn tags(mut self, tags: impl IntoIterator<Item: Into<Ustr>>) -> Self {
         self.tags = tags.into_iter().map(|t| t.into()).collect();
         self

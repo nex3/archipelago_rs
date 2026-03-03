@@ -2,9 +2,9 @@
 
 * **Breaking change:** Make the `game` parameter for `Client::connect()` and
   `Connection::new()` optional. This may be `None` if
-  `ConnectionOptions::tags()` contains `"HintGame"`, `"Tracker"`, and/or
-  `"TextOnly"`, in which case the client will connect in a special mode where
-  its game isn't validated.
+  `ConnectionOptions::tags()` contains `ap::tags::HINT_GAME`,
+  `ap::tags::TRACKER`, and/or `ap::tags::TEXT_ONLY`, in which case the client
+  will connect in a special mode where its game isn't validated.
 
 * **Breaking change:** Reverse the position of the `name` and `game` parameters
   for `Client::connect()` and `Connection::new()` to reflect the fact that
@@ -26,6 +26,9 @@
 
 * Make `Client::connect()` take `Into<..>` parameters rather than specific types
   to match `Connection::new()`.
+  
+* Add a `tags` module which contains constants for common tags defined by the
+  Archipelago network protocol.
 
 * Add `ArgumentError::MissingGame` for the case where a player passes `None` as
   `game` to `Client::connect()` and `Connection::new()` without appropriate
