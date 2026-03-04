@@ -1,6 +1,6 @@
 [package]
 name = "archipelago_rs"
-version = "2.0.0-dev"
+version = "2.0.0"
 edition = "2024"
 
 description = "A Rust client for the archipelago.gg multiworld randomizer"
