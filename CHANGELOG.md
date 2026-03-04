@@ -26,7 +26,9 @@
 
 * Make `Client::connect()` take `Into<..>` parameters rather than specific types
   to match `Connection::new()`.
-  
+
+* Add `Client::try_next_event()` and `Connection::try_next_event()` methods.
+
 * Add a `tags` module which contains constants for common tags defined by the
   Archipelago network protocol.
 
