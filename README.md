@@ -22,7 +22,7 @@ requests to the server that have specific responses associated with them (as in
 [`oneshot::Receiver`] that the caller can use to access the response once it's
 available.
 
-[`oneshot::Receiver`]: https://docs.rs/oneshot/0.1.11/oneshot/struct.Receiver.html
+[`oneshot::Receiver`]: https://docs.rs/oneshot/latest/oneshot/struct.Receiver.html
 
 This library takes responsibility for tracking the state of the server as it
 updates and exposing it through getters such as `Client.hint_points()` and

@@ -22,16 +22,16 @@ native-tls = ["dep:native-tls", "tungstenite/native-tls"]
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_repr = "0.1"
-thiserror = "2.0.17"
+thiserror = "2.0.18"
 tungstenite = { version = "0.28", features = [] }
-bitflags = { version = "2.10.0" }
-serde_with = "3.16.1"
+bitflags = "2.11.0"
+serde_with = "3.17.0"
 log = "0.4.29"
-native-tls = { version = "0.2.14", optional = true }
+native-tls = { version = "0.2.18", optional = true }
 smol = "2.0.2"
 ustr = { version = "1.1.0", features = ["serde"] }
-oneshot = "0.1.11"
-rand = "0.9.2"
+oneshot = { version = "0.2.1", features = ["async", "std"] }
+rand = "0.10.0"
 rustls = { version = "0.23.36", optional = true }
 webpki-roots = { version = "1.0.6", optional = true }
 sanitise-file-name = "1.0.0"
