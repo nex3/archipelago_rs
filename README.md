@@ -47,6 +47,36 @@ having to worry about lifetimes. It's unlikely that the memory will leak in
 practice since it's expected that the client will last for the whole game
 session (or, if it disconnects, another client will reconnect to the same room).
 
+### TLS/SSL Support
+
+Rust's support for TLS, especially through WebSockets, is very low-level.
+Because the official Archipelago server requires TLS, this package intends to
+make using it as simple and batteries-included as possible.
+
+The Rust ecosystem has two broad options for TLS support: the [`rustls` crate],
+which implements the entire TLS stack in Rust; and the [`native-tls` crate],
+which relies on the operating system's built-in TLS implementation. These each
+have their benefits: `rustls` isn't subject to OS-specific quirks and bugs,
+while `native-tls` can keep the algorithm and especially the certificate store
+up-to-date with OS updates.
+
+[`rustls` crate]: https://crates.io/crates/rustls
+[`native-tls` crate]: https://crates.io/crates/native-tls
+
+To ensure maximum compatibility, by default this crate supports both. When
+connecting over TLS, it will first attempt to connect using `rustls`, because
+this is known to work with archipelago.gg on all platforms (even Wine/Proton, on
+which `native-tls` is [currently buggy]). If this fails, it will fall back to
+trying `native-tls` instead. If that fails as well, it'll try an unencrpyted TCP
+connection.
+
+[currently buggy]: https://github.com/rust-native-tls/rust-native-tls/issues/375
+
+You can control this behavior using crate features. If you enable only one of
+the `rustls` or `native-tls` features, this will only connect using that system.
+If you enable neither, it will only connect using an unencrypted WebSocket
+connection.
+
 ## Usage
 
 There are two primary entrypoints for the library. The `Connection` struct is

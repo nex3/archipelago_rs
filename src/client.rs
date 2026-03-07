@@ -111,12 +111,29 @@ impl<S: DeserializeOwned + 'static> Client<S> {
         let url = url.into();
         let mut socket = if url.as_str().starts_with("ws://") || url.as_str().starts_with("wss://")
         {
-            Socket::connect(url).await?
+            Socket::connect(
+                url,
+                #[cfg(feature = "rustls")]
+                options.rustls_config,
+            )
+            .await?
         } else {
-            match Socket::connect(format!("wss://{}", url)).await {
+            match Socket::connect(
+                format!("wss://{}", url),
+                #[cfg(feature = "rustls")]
+                options.rustls_config.clone(),
+            )
+            .await
+            {
                 Ok(socket) => socket,
                 Err(Error::WebSocket(err)) => {
-                    match Socket::connect(format!("wss://{}", url)).await {
+                    match Socket::connect(
+                        format!("ws://{}", url),
+                        #[cfg(feature = "rustls")]
+                        options.rustls_config,
+                    )
+                    .await
+                    {
                         Ok(socket) => socket,
                         Err(_) => return Err(err.into()),
                     }
