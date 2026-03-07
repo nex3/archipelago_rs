@@ -2,7 +2,6 @@ version: 2
 updates:
 - package-ecosystem: cargo
   directory: "/"
-  versioning-strategy: increase-if-necessary
   allow:
     - dependency-type: "all"
   schedule:
