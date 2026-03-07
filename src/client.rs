@@ -128,7 +128,7 @@ impl<S: DeserializeOwned + 'static> Client<S> {
                 Ok(socket) => socket,
                 Err(Error::WebSocket(err)) => {
                     match Socket::connect(
-                        format!("wss://{}", url),
+                        format!("ws://{}", url),
                         #[cfg(feature = "rustls")]
                         options.rustls_config,
                     )
