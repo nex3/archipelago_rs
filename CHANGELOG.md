@@ -1,3 +1,7 @@
+## 2.0.1
+
+* Broaden dependencies.
+
 ## 2.0.0
 
 * **Breaking change:** Make the `game` parameter for `Client::connect()` and
