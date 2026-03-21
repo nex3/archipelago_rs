@@ -1,6 +1,6 @@
 [package]
 name = "archipelago_rs"
-version = "2.0.0"
+version = "2.1.0"
 edition = "2024"
 
 description = "A Rust client for the archipelago.gg multiworld randomizer"
@@ -23,7 +23,7 @@ serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
 serde_repr = "0.1"
 thiserror = "2.0.18"
-tungstenite = { version = "0.28", features = [] }
+tungstenite = { version = ">=0.28, <0.30.0", features = [] }
 bitflags = "2.11.0"
 serde_with = "3.17.0"
 log = "0.4.29"
