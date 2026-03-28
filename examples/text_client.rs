@@ -51,12 +51,12 @@ struct ArchipelagoClient {
 }
 
 impl eframe::App for ArchipelagoClient {
-    fn update(&mut self, ctx: &Context, frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         // Force the app to continually paint new frames so that we don't starve
         // the Archipelago connection. If you're running as part of a game's UI
         // loop, you don't need to worry about this, since the game will render
         // many frames per second anyway.
-        ctx.request_repaint();
+        ui.request_repaint();
 
         for event in self.connection.update() {
             if let ap::Event::Print(print) = event {
@@ -67,7 +67,7 @@ impl eframe::App for ArchipelagoClient {
             }
         }
 
-        CentralPanel::default().show(ctx, |ui| {
+        CentralPanel::default().show_inside(ui, |ui| {
             match self.connection.state() {
                 ap::ConnectionState::Connecting(_) => {
                     ui.heading("Connecting...");
@@ -111,7 +111,7 @@ impl eframe::App for ArchipelagoClient {
         });
 
         if self.connect_popup.visible {
-            let response = self.connect_popup.update(ctx, frame);
+            let response = self.connect_popup.update(ui, frame);
             if let Some(connection) = response.inner {
                 self.connect_popup.visible = false;
                 self.connection = connection;
@@ -141,10 +141,10 @@ struct ConnectPopup {
 impl ConnectPopup {
     fn update(
         &mut self,
-        ctx: &Context,
+        ui: &mut Ui,
         _: &mut eframe::Frame,
     ) -> ModalResponse<Option<ap::Connection<()>>> {
-        Modal::new(Id::new("connect-popup")).show(ctx, |ui| {
+        Modal::new(Id::new("connect-popup")).show(ui, |ui| {
             let responses = [
                 ui.horizontal(|ui| {
                     ui.label("URL");
