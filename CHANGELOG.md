@@ -1,4 +1,8 @@
-## 2.0.1
+## 2.1.1
+
+* Fix a bug where a connection closing was improperly handled by 
+
+## 2.1.0
 
 * Broaden dependencies.
 

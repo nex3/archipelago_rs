@@ -344,6 +344,13 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
                         .push_back(Err(ProtocolError::BinaryMessage(bytes.to_vec()).into()));
                 }
 
+                Ok(Message::Close(_)) => {
+                    debug!("--> [closed]");
+                    let err = Error::WebSocket(tungstenite::Error::ConnectionClosed);
+                    self.messages.push_back(Err(err));
+                    break;
+                }
+
                 // Other message types like pings, frames, and closes are
                 // handled internally by the tungstenite. We can ignore them.
                 Ok(_) => {}
@@ -353,6 +360,7 @@ impl<S: DeserializeOwned + 'static> Socket<S> {
                 }
 
                 Err(err) => {
+                    debug!("--> [error] {err:?}");
                     let err = Error::from(err);
                     let fatal = err.is_fatal();
                     self.messages.push_back(Err(err));
