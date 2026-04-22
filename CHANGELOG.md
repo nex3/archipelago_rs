@@ -1,3 +1,11 @@
+## 3.0.0
+
+* `Client::hint_points` now returns `i64` rather than `u64`. A negative value
+  indicates that the player is in "hint debt".
+
+* `UpdatedField::HintPoints` similarly now contains an `i64` rather than a
+  `u64`.
+
 ## 2.1.1
 
 * Fix a bug where a connection closing was improperly handled and could cause

@@ -144,7 +144,7 @@ pub enum UpdatedField {
     /// [Client.hint_points] has changed.
     ///
     /// This contains the previous value for the field.
-    HintPoints(u64),
+    HintPoints(i64),
 
     /// One or more players' aliases have changed.
     ///

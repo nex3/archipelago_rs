@@ -449,7 +449,7 @@ pub(crate) struct Connected<S> {
     pub(crate) slot_data: S,
     #[serde_as(as = "HashMap<DisplayFromStr, _>")]
     pub(crate) slot_info: HashMap<u32, NetworkSlot>,
-    pub(crate) hint_points: u64,
+    pub(crate) hint_points: i64,
 }
 
 /// Deserializes a value of `Connected<S>`, except that if `S` is
@@ -505,7 +505,7 @@ pub(crate) struct RoomUpdate {
     pub(crate) hint_cost: Option<u8>,
     pub(crate) location_check_points: Option<u64>,
     // Copied from Connected
-    pub(crate) hint_points: Option<u64>,
+    pub(crate) hint_points: Option<i64>,
     pub(crate) players: Option<Vec<NetworkPlayer>>,
     pub(crate) checked_locations: Option<Vec<i64>>,
 }
