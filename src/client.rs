@@ -571,7 +571,9 @@ impl<S: DeserializeOwned + 'static> Client<S> {
 
         for id in locations {
             if matches!(self.local_locations_checked.insert(id, true), Some(false)) {
-                self.hint_points = self.hint_points.strict_add_unsigned(self.hint_points_per_check);
+                self.hint_points = self
+                    .hint_points
+                    .strict_add_unsigned(self.hint_points_per_check);
             }
         }
         Ok(())
