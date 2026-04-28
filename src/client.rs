@@ -44,7 +44,7 @@ pub struct Client<S: DeserializeOwned + 'static = serde_json::Value> {
     permissions: PermissionMap,
     hint_cost_percentage: u8,
     hint_points_per_check: u64,
-    hint_points: u64,
+    hint_points: i64,
     seed_name: String,
     games: UstrMap<Game>,
     slot_data: S,
@@ -376,7 +376,11 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     }
 
     /// The number of hint points the player currently has.
-    pub fn hint_points(&self) -> u64 {
+    ///
+    /// This can be negative to represent the player being in "hint debt", which
+    /// can occur if the server admin raises the hint cost after the player has
+    /// already spent down their hint points.
+    pub fn hint_points(&self) -> i64 {
         self.hint_points
     }
 
@@ -567,7 +571,9 @@ impl<S: DeserializeOwned + 'static> Client<S> {
 
         for id in locations {
             if matches!(self.local_locations_checked.insert(id, true), Some(false)) {
-                self.hint_points += self.hint_points_per_check;
+                self.hint_points = self
+                    .hint_points
+                    .strict_add_unsigned(self.hint_points_per_check);
             }
         }
         Ok(())
