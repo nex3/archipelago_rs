@@ -6,6 +6,9 @@
 * `UpdatedField::HintPoints` similarly now contains an `i64` rather than a
   `u64`.
 
+* Add a `DeathLink::server_time` field which returns the unmodified time
+  reported by the server.
+
 ## 2.1.1
 
 * Fix a bug where a connection closing was improperly handled and could cause

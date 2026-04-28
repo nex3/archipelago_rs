@@ -992,6 +992,7 @@ impl<S: DeserializeOwned + 'static> Client<S> {
                 // add the server delay to translate that back into the
                 // time on the client.
                 time: data.time + self.server_skew,
+                server_time: data.time,
                 cause: data.cause,
                 source: data.source,
             }),
