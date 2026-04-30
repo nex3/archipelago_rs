@@ -81,10 +81,18 @@ pub enum Event {
         /// least `"DeathLink"`.
         tags: UstrSet,
 
-        /// The time the death link was sent, according to the sender. There's
-        /// no guarantee that this has any particular relationship to the
-        /// current system's time.
+        /// The time the death link was sent, according to the sender but
+        /// adjusted for timing skew between the server and the local system.
+        ///
+        /// The client attempts to measure and mitigate timing skew between the
+        /// server and the local system. However, that skew can vary arbitrarily
+        /// from message to message so there's no strong guarantee that this has
+        /// any particular relationship to the current system's time.
         time: SystemTime,
+
+        /// The time that the death link was sent, according to the sender with
+        /// no skew adjustment at all.
+        server_time: SystemTime,
 
         /// Text to explain the cause of death. This is expected to contain the
         /// name of the player who died.
