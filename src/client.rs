@@ -21,7 +21,7 @@ pub use death_link_options::*;
 const VERSION: NetworkVersion = NetworkVersion {
     major: 0,
     minor: 6,
-    build: 0,
+    build: 6,
     class: String::new(),
 };
 
