@@ -1,3 +1,7 @@
+## 3.0.1
+
+* Declare support for Archipelago 0.6.6.
+
 ## 3.0.0
 
 * `Client::hint_points` now returns `i64` rather than `u64`. A negative value
