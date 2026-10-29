@@ -1,5 +1,5 @@
 use serde::de::DeserializeOwned;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::{mem, ptr, sync::Arc, time::SystemTime};
 use ustr::{Ustr, UstrMap, UstrSet};
 
@@ -68,6 +68,10 @@ pub struct Client<S: DeserializeOwned + 'static = serde_json::Value> {
     /// overwritten if the server sends a new [ServerMessage::ReceivedItems]
     /// with index 0.
     received_items: Vec<ReceivedItem>,
+
+    /// All locations scouted this session. Updates to match location_scount_senders
+    /// as they are fulfilled
+    scouted_locations: HashSet<LocatedItem>,
 
     /// Senders for [Client.scout_locations].
     location_scout_senders: VecDeque<oneshot::Sender<Result<Vec<LocatedItem>, Error>>>,
@@ -300,6 +304,7 @@ impl<S: DeserializeOwned + 'static> Client<S> {
             player_key,
             local_locations_checked,
             received_items: Default::default(),
+            scouted_locations: Default::default(),
             location_scout_senders: Default::default(),
             get_senders: Default::default(),
         })
@@ -529,6 +534,11 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     /// this will be empty until the initial [Event::ReceivedItems] is emitted.
     pub fn received_items(&self) -> &[ReceivedItem] {
         &self.received_items
+    }
+
+    /// Returns all locations that have been scouted by this client session.
+    pub fn scouted_locations(&self) -> impl Iterator<Item = &LocatedItem> {
+        self.scouted_locations.iter()
     }
 
     /// Returns the slot data provided by the apworld.
@@ -956,6 +966,12 @@ impl<S: DeserializeOwned + 'static> Client<S> {
                         )
                     })
                     .collect::<Result<Vec<LocatedItem>, Error>>();
+                if let Ok(locs) = &locations_or_err {
+                    for l in locs {
+                        self.scouted_locations.insert(l.clone());
+                    }
+                }
+
                 if let Some(sender) = self.location_scout_senders.pop_front() {
                     mem::drop(sender.send(locations_or_err));
                     None

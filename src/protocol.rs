@@ -132,7 +132,7 @@ pub(crate) struct NetworkItem {
 
 bitflags! {
     #[repr(transparent)]
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq,  Hash)]
     #[serde(from = "u8")]
     #[serde(into = "u8")]
     pub(crate) struct NetworkItemFlags: u8 {

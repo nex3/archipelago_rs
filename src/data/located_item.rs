@@ -6,7 +6,7 @@ use crate::protocol::{NetworkItem, NetworkItemFlags};
 use crate::{Client, Error, Game, Item, Location, Player};
 
 /// An item associated with a particular location in particular player's world.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct LocatedItem {
     item: Item,
     location: Location,
