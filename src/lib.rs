@@ -18,3 +18,7 @@ pub use error::*;
 pub use event::*;
 pub use protocol::*;
 pub use util::*;
+
+// re-export crates whose types we expose
+pub use oneshot;
+pub use ustr;
