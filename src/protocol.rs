@@ -416,7 +416,7 @@ pub(crate) struct RoomInfo {
     #[serde(rename = "password")]
     pub(crate) password_required: bool,
     pub(crate) permissions: PermissionMap,
-    pub(crate) hint_cost: u8,
+    pub(crate) hint_cost: u64,
     pub(crate) location_check_points: u64,
     pub(crate) games: UstrSet,
     pub(crate) datapackage_checksums: UstrMap<String>,
@@ -502,7 +502,7 @@ pub(crate) struct RoomUpdate {
     // Copied from RoomInfo
     pub(crate) tags: Option<UstrSet>,
     pub(crate) permissions: Option<PermissionMap>,
-    pub(crate) hint_cost: Option<u8>,
+    pub(crate) hint_cost: Option<u64>,
     pub(crate) location_check_points: Option<u64>,
     // Copied from Connected
     pub(crate) hint_points: Option<i64>,

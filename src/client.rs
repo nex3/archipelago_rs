@@ -42,7 +42,7 @@ pub struct Client<S: DeserializeOwned + 'static = serde_json::Value> {
     server_tags: UstrSet,
     password_required: bool,
     permissions: PermissionMap,
-    hint_cost_percentage: u8,
+    hint_cost_percentage: u64,
     hint_points_per_check: u64,
     hint_points: i64,
     seed_name: String,
@@ -367,7 +367,11 @@ impl<S: DeserializeOwned + 'static> Client<S> {
     /// The number of hint points the player must accumulate in order to access
     /// a single hint.
     pub fn points_per_hint(&self) -> u64 {
-        (self.local_locations_checked.len() as u64) * u64::from(self.hint_cost_percentage) / 100
+        let points = (self.local_locations_checked.len() as u128)
+            * u128::from(self.hint_cost_percentage)
+            / 100;
+
+        points.min(u128::from(u64::MAX)) as u64
     }
 
     /// The number of hint points granted for each location a player checks.
